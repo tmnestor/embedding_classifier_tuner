@@ -1,0 +1,75 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+**/*.pth
+**/*.pt
+**/*.safetensors
+**/*.png
+**/*.json
+**/*.log
+**/*.ipynb
+**/*.pyc
+
+.DS_Store
+
+# Jupyter Notebook checkpoints anywhere in the codebase
+**/.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# Keep directories but ignore contents
+logs/*
+!logs/.gitkeep
+
+monitoring/*
+!monitoring/.gitkeep
+
+figures/*
+!figures/.gitkeep
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Coverage reports
+.coverage
+coverage.xml
+htmlcov/
+
+# pytest
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+
+# Profiling
+*.prof
+*.pstats
+
+# Experiment tracking
+wandb/
+mlruns/
+tensorboard/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+.env/
+
+# IDE specific files
+.vscode/
+.idea/
+
+# BERT MODELS
+
+all-mpnet-base-v2/
+paraphrase-MiniLM-L6-v2/

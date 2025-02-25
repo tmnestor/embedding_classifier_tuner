@@ -1,0 +1,33 @@
+BASE_ROOT: &BASE_ROOT "/users/tod/bert_outputs"
+
+DATA_ROOT: &DATA_ROOT !join [ *BASE_ROOT, "/data" ]
+CKPT_ROOT: &CKPT_ROOT !join [ *BASE_ROOT, "/checkpoints" ]
+BEST_CONFIG_DIR: !join [ *BASE_ROOT, "/config" ]
+LEARNING_CURVES_DIR: !join [ *BASE_ROOT, "/evaluation" ]
+
+base: &base
+  SEED: 42
+  NUM_EPOCHS: 10
+  BATCH_SIZE: 64
+  MAX_SEQ_LEN: 64
+  MODEL: "all-mpnet-base-v2"
+  MODEL_NAME: "all-mpnet-base-v2"
+  DROP_OUT: 0.3
+  ACT_FN: "silu"
+  LEARNING_RATE: 2e-5
+  PATIENCE: 10
+  LR_PATIENCE: 5
+  MIN_LR: 1e-6
+  STUDY_NAME: "bert_opt"
+
+paths: &paths
+  CSV_PATH: !join [ *DATA_ROOT, "/ecommerce.csv" ]
+  TRAIN_CSV: !join [ *DATA_ROOT, "/train.csv" ]
+  VAL_CSV: !join [ *DATA_ROOT, "/val.csv" ]
+  TEST_CSV: !join [ *DATA_ROOT, "/test.csv" ]
+  CHECKPOINT_DIR: *CKPT_ROOT
+  EMBEDDING_PATH: !join [ *CKPT_ROOT, "/triplet_model.pt" ]
+  DATA_PATH: *DATA_ROOT
+
+<<: *base
+<<: *paths
