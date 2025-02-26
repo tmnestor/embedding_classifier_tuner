@@ -39,36 +39,33 @@ pip install torch transformers optuna scikit-learn pandas seaborn matplotlib pyy
 ## Usage
 
 1. **Train Triplet Embedding Model**
-   - Run `triplet_training.py` to generate and save the triplet model and embeddings.
+   - Run `TripletTraining.py` to generate and save the triplet model and embeddings.
    ```bash
-   python triplet_training.py --epochs <num_epochs> --lr <learning_rate>
+   python TripletTraining.py --epochs <num_epochs> --lr <learning_rate>
    ```
 
 2. **Hyperparameter Tuning**
-   - Run `tune_bert.py` to perform hyperparameter tuning. The best configuration is saved to the BEST_CONFIG_DIR.
+   - Run `TuneBert.py` to perform hyperparameter tuning. The best configuration is saved to the BEST_CONFIG_DIR.
    ```bash
-   python tune_bert.py
+   python TuneBert.py
    ```
+This script will run Optuna to find the best hyperparameters and save them to a YAML file named best_config_<study_name>.yml. The study_name is defined as a constant in both tune_bert.py and BERT_classification.py.
 
 3. **Train and Evaluate Classifier**
-   - Run `BERT_classification.py` to train the classifier using the triplet model embeddings and tuned hyperparameters.
+   - Run `BertClassification.py` to train the classifier using the triplet model embeddings and tuned hyperparameters.
    ```bash
-   python BERT_classification.py
+   python BertClassification.py
    ```
 
 4. **Run Predictions**
-   - Run `predict.py` to load the best classifier checkpoint and add predictions to your test CSV.
+   - Run `Predict.py` to load the best classifier checkpoint and add predictions to your test CSV.
    ```bash
-   python predict.py
+   python Predict.py
    ```
 
-## Hyperparameter Tuning
 
-```bash
-python tune_bert.py
-```
 
-This script will run Optuna to find the best hyperparameters and save them to a YAML file named best_config_<study_name>.yml. The study_name is defined as a constant in both tune_bert.py and BERT_classification.py.
+
 
 ## Notes
 

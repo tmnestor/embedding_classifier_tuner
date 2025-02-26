@@ -2,11 +2,11 @@ import ast
 import os
 import random
 import re
+import sys
 
-# Add the current directory to sys.path to ensure module imports work
-# current_dir = os.path.dirname(os.path.abspath(__file__))
-# if current_dir not in sys.path:
-#     sys.path.insert(0, current_dir)
+# Add the parent directory to sys.path to ensure module imports work
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -23,73 +23,39 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 from transformers import AutoModel, AutoTokenizer
 
-from TripletTraining import TripletEmbeddingModel
-from utils.utils import get_default_device, preprocess_text
 
-# Safe import with fallbacks for utils
+from utils.LoaderSetup import join_constructor
+
+
+# Try fallback import strategies
 # try:
+#     # First try the PascalCase import
 #     from utils.LoaderSetup import join_constructor
-#     from utils.utils import get_default_device, preprocess_text
+# except ImportError:
+#     try:
+#         # Then try the snake_case import
+#         from utils.loader_setup import join_constructor
 
-#     print("Successfully imported from utils package")
-# except ImportError as e:
-#     print(f"Error importing from utils package: {e}")
+#         print("Warning: Imported from loader_setup instead of LoaderSetup")
+#     except ImportError:
+#         # Manual import if module cannot be found
+#         def join_constructor(loader, node):
+#             seq = loader.construct_sequence(node)
+#             return "".join(seq)
 
-#     # Define fallbacks if imports fail
-#     def join_constructor(loader, node):
-#         seq = loader.construct_sequence(node)
-#         return "".join(seq)
+#         yaml.add_constructor("!join", join_constructor, Loader=yaml.SafeLoader)
+#         print("Warning: Created local join_constructor function")
 
-#     def get_default_device():
-#         if torch.cuda.is_available():
-#             return torch.device("cuda")
-#         return torch.device("cpu")
+from TripletTraining import TripletEmbeddingModel
 
-#     def preprocess_text(text):
-#         if not isinstance(text, str):
-#             return ""
-#         TAG_RE = re.compile(r"<[^>]+>")
-#         text = TAG_RE.sub("", text)
-#         text = " ".join(text.split())
-#         return text
-
-#     # Register YAML constructor
-#     yaml.add_constructor("!join", join_constructor, Loader=yaml.SafeLoader)
-#     print("Using fallback implementations for utils functions")
-
-# Safe import with additional fallbacks for TripletEmbeddingModel
-# try:
-#     from TripletTraining import TripletEmbeddingModel
-
-#     print("Successfully imported TripletEmbeddingModel from TripletTraining")
-# except ImportError as e:
-#     print(f"Error importing from TripletTraining: {e}")
-
-#     # Define a fallback TripletEmbeddingModel if import fails
-#     class TripletEmbeddingModel(nn.Module):
-#         def __init__(self, base_model):
-#             super(TripletEmbeddingModel, self).__init__()
-#             self.base_model = base_model
-
-#         def _mean_pooled(self, last_hidden_states, attention_mask):
-#             last_hidden = last_hidden_states.masked_fill(
-#                 ~attention_mask[..., None].bool(), 0.0
-#             )
-#             return last_hidden.sum(dim=1) / attention_mask.sum(dim=1)[..., None]
-
-#         def forward(self, input_ids, attention_mask):
-#             outputs = self.base_model(
-#                 input_ids=input_ids, attention_mask=attention_mask
-#             )
-#             last_hidden_state = outputs.last_hidden_state
-#             pooled_output = self._mean_pooled(last_hidden_state, attention_mask)
-#             normalized_output = F.normalize(pooled_output, p=2, dim=1)
-#             return normalized_output
-
-#     print("Using fallback implementation for TripletEmbeddingModel")
+# Verify the file structure and print debug info
+utils_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "utils")
+print(f"Utils directory exists: {os.path.exists(utils_dir)}")
+print(
+    f"Files in utils: {os.listdir(utils_dir) if os.path.exists(utils_dir) else 'N/A'}"
+)
 
 # Load configuration
-# with open(os.path.join(current_dir, "config.yml"), "r", encoding="utf-8") as f:
 with open("config.yml", "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
 SEED = config["SEED"]
@@ -442,7 +408,7 @@ def train_model(model, train_loader, val_loader, optimizer, criterion, scheduler
 
 
 def plot_learning_curves(df_metrics):
-    _, axes = plt.subplots(1, 2, figsize=(14, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     sns.lineplot(
         data=df_metrics,
         x="epoch",
@@ -589,7 +555,7 @@ def load_embedding_data(device):
     return train_loader, val_loader, test_loader, label_encoder
 
 
-# A function to load the TripletEmbeddingModel
+# Add new function to load the TripletEmbeddingModel
 def load_triplet_model(device):
     base_model = AutoModel.from_pretrained(MODEL).to(device)
     triplet_model = TripletEmbeddingModel(base_model).to(device)
@@ -616,22 +582,41 @@ def embeddings_are_outdated():
     )
 
 
+def preprocess_text(text):
+    """Clean and normalize the input text."""
+    if not isinstance(text, str):
+        return ""
+    text = TAG_RE.sub("", text)
+    text = " ".join(text.split())
+    return text
+
+
+def get_default_device():
+    """Get the default compute device for PyTorch."""
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
+
+
 def main():
     DEVICE = get_default_device()
     print(f"Using device: {DEVICE}")
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
-    # Load best configuration if it exists.
+    # Load best configuration if it exists from BEST_CONFIG_DIR in the config
     best_config_file = os.path.join(
         config["BEST_CONFIG_DIR"], f"best_config_{STUDY_NAME}.yml"
     )
+    best_config = {}
+
     if os.path.exists(best_config_file):
         with open(best_config_file, "r", encoding="utf-8") as f:
             best_config = yaml.safe_load(f)
-        print("Loaded best configuration from YAML:")
-        # print(best_config)
+        print(f"Loaded best configuration from: {best_config_file}")
+        print("Configuration parameters:")
+        for key, value in best_config.items():
+            print(f"  - {key}: {value}")
     else:
-        best_config = {}
         print("No best configuration file found. Using default parameters.")
 
     # Load the TripletEmbeddingModel
@@ -648,24 +633,59 @@ def main():
     train_loader, val_loader, test_loader, label_encoder = load_embedding_data(DEVICE)
     print(f"Detected {NUM_LABEL} classes: {label_encoder.classes_}")
 
-    # Override default classifier parameters with best config if available.
-    classifier_dropout = best_config.get("dropout_rate", DROP_OUT)
-    classifier_activation = best_config.get("activation", ACT_FN)
+    # Get input dimension from triplet model
     classifier_input_size = triplet_model.base_model.config.hidden_size
 
-    # Initialize FFModel using the measured dimension.
-    classifier = FFModel(
-        classifier_input_size,
-        NUM_LABEL,
-        classifier_dropout,
-        activation_fn=classifier_activation,
-    )
+    # Get common parameters regardless of architecture choice
+    classifier_dropout = best_config.get("dropout_rate", DROP_OUT)
+    classifier_activation = best_config.get("activation", ACT_FN)
+
+    # Check if we should create a tuned model architecture or use the default FFModel
+    if "n_hidden" in best_config and "hidden_units_0" in best_config:
+        print("Using tuned architecture from best configuration")
+        # Create a dynamic model based on the tuned architecture parameters
+        layers = []
+        prev_width = classifier_input_size
+        n_hidden = best_config.get(
+            "n_hidden", 2
+        )  # Default to 2 hidden layers if not specified
+
+        # Build the hidden layers based on best_config
+        for i in range(n_hidden):
+            width_key = f"hidden_units_{i}"
+            if width_key in best_config:
+                width = best_config[width_key]
+            else:
+                width = prev_width // 2  # Default to halving the previous width
+
+            layers.append(
+                DenseBlock(prev_width, width, classifier_dropout, classifier_activation)
+            )
+            prev_width = width
+
+        # Add the final output layer
+        layers.append(nn.Linear(prev_width, NUM_LABEL))
+
+        # Create the classifier as a sequential model
+        classifier = nn.Sequential(*layers)
+        print(f"Created tuned classifier architecture with {n_hidden} hidden layers")
+    else:
+        # Use the default FFModel architecture
+        print("Using default FFModel architecture")
+        classifier = FFModel(
+            classifier_input_size,
+            NUM_LABEL,
+            classifier_dropout,
+            activation_fn=classifier_activation,
+        )
+
+    # Create the full model with the classifier
     model = BertClassifier(triplet_model, classifier).to(DEVICE)
 
     # Override optimizer settings if available.
     lr = float(best_config.get("lr", LEARNING_RATE))  # Cast lr to float
     optimizer_choice = best_config.get("optimizer", "adamw")
-    weight_decay = best_config.get("weight_decay", 0)
+    weight_decay = float(best_config.get("weight_decay", 0))  # Cast to float to be safe
 
     if optimizer_choice == "adamw":
         optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -703,9 +723,38 @@ def main():
     )
     np.save(os.path.join(CHECKPOINT_DIR, "training_metrics.npy"), metrics)
     df_metrics = pd.DataFrame(metrics)
-    # print(df_metrics)
     plot_learning_curves(df_metrics)
-    _, _, _ = evaluate_best_model(model, test_loader, criterion)
+    test_loss, test_acc, test_f1 = evaluate_best_model(model, test_loader, criterion)
+
+    # Print a summary of the model architecture and saved location
+    model_save_path = os.path.join(CHECKPOINT_DIR, "model", "best_model.pt")
+    print("\n" + "=" * 80)
+    print("MODEL TRAINING SUMMARY")
+    print("=" * 80)
+    print(f"Pretrained Model: {MODEL_NAME}")
+    print(f"Architecture:")
+    print(f"  - Embedding Model: {triplet_model.__class__.__name__}")
+    print(f"  - Classifier: {classifier.__class__.__name__}")
+    print(f"    - Input Dimension: {classifier_input_size}")
+    print(f"    - Output Classes: {NUM_LABEL}")
+    print(f"    - Dropout Rate: {classifier_dropout}")
+    print(f"    - Activation Function: {classifier_activation}")
+    print(f"Training:")
+    print(f"  - Optimizer: {optimizer.__class__.__name__}")
+    print(f"  - Learning Rate: {lr}")
+    print(f"  - Batch Size: {BATCH_SIZE}")
+    print(f"  - Max Sequence Length: {MAX_SEQ_LEN}")
+    print(f"Test Performance:")
+    print(f"  - Loss: {test_loss:.4f}")
+    print(f"  - Accuracy: {test_acc * 100:.2f}%")
+    print(f"  - F1 Score: {test_f1:.4f}")
+    print(f"File Locations:")
+    print(f"  - Model Saved To: {model_save_path}")
+    print(f"  - Embeddings Model: {EMBEDDING_PATH}")
+    print(f"  - Training Data: {TRAIN_CSV}")
+    print("=" * 80)
+
+    return model, test_acc, test_f1
 
 
 if __name__ == "__main__":
