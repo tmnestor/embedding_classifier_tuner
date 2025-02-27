@@ -1,7 +1,6 @@
 import os
-
-import optuna
 import torch
+import optuna
 import torch.nn as nn
 import torch.optim as optim
 import yaml
@@ -12,23 +11,18 @@ from utils.LoaderSetup import join_constructor
 yaml.add_constructor("!join", join_constructor, Loader=yaml.SafeLoader)
 
 from utils.shared import (
-    get_default_device,
-    generate_embedding_csv_data,
     load_embedding_data,
-    load_triplet_model,
     validate,
     STUDY_NAME,
     BEST_CONFIG_DIR,
 )
 
-# Constants
-NUM_TRIALS = 100  # Number of hyperparameter combinations to try
-EPOCHS = 5  # Number of epochs for each trial (keep low for faster experimentation)
-DEVICE = get_default_device()
-print(f"Using device: {DEVICE}")
+# Import the get_device function from our utility module
+from utils.device_utils import get_device
 
-# Create output directories
-os.makedirs(BEST_CONFIG_DIR, exist_ok=True)
+# Constants
+NUM_TRIALS = 20  # Number of hyperparameter combinations to try
+EPOCHS = 5  # Number of epochs for each trial (keep low for faster experimentation)
 
 
 # Updated DenseBlock with additional activations.
@@ -114,18 +108,21 @@ class BERTClassifierTuned(nn.Module):
         return self.classifier(inputs)
 
 
-def objective(trial):
+def objective(trial, device):
+    """Objective function for Optuna optimization"""
     # Load embedding data - will regenerate if needed
-    train_loader, val_loader, _, label_encoder = load_embedding_data(DEVICE)
+    train_loader, val_loader, test_loader, label_encoder, num_label = (
+        load_embedding_data(device)
+    )
 
     # Get input dimension from data and num classes
     sample_batch, _ = next(iter(train_loader))
     input_dim = sample_batch.shape[1]
-    output_dim = len(label_encoder.classes_)
+    output_dim = num_label  # Use the returned num_label from load_embedding_data
 
     # Build classifier using the tunable design.
     classifier = TunableFFModel(input_dim, output_dim, trial)
-    model = BERTClassifierTuned(classifier).to(DEVICE)
+    model = BERTClassifierTuned(classifier).to(device)
 
     # Tune optimizer choice: 'adamw', 'sgd', or 'rmsprop'
     optimizer_choice = trial.suggest_categorical(
@@ -196,13 +193,22 @@ def objective(trial):
     return best_val_acc
 
 
-if __name__ == "__main__":
-    print("Starting hyperparameter tuning...")
-    print(f"Will run {NUM_TRIALS} trials using device: {DEVICE}")
-    try:
-        study = optuna.create_study(direction="maximize", study_name=STUDY_NAME)
-        study.optimize(objective, n_trials=NUM_TRIALS)
+def main():
+    """Main entry point for hyperparameter tuning"""
+    # Initialize device and create directories
+    device = get_device()  # Use the imported function
+    print(f"Using device: {device}")
+    os.makedirs(BEST_CONFIG_DIR, exist_ok=True)
 
+    print("Starting hyperparameter tuning...")
+    print(f"Will run {NUM_TRIALS} trials using device: {device}")
+
+    try:
+        # Create and run the study
+        study = optuna.create_study(direction="maximize", study_name=STUDY_NAME)
+        study.optimize(lambda trial: objective(trial, device), n_trials=NUM_TRIALS)
+
+        # Print and save results
         print("\nBest trial:")
         trial = study.best_trial
         print(f"Validation Accuracy: {trial.value:.4f}")
@@ -210,13 +216,19 @@ if __name__ == "__main__":
         for key, value in trial.params.items():
             print(f"    {key}: {value}")
 
-        # Save the best configuration to a YAML file in BEST_CONFIG_DIR.
-        os.makedirs(BEST_CONFIG_DIR, exist_ok=True)
+        # Save the best configuration to a YAML file
         best_config_file = os.path.join(
             BEST_CONFIG_DIR, f"best_config_{STUDY_NAME}.yml"
         )
         with open(best_config_file, "w", encoding="utf-8") as f:
             yaml.dump(trial.params, f)
         print(f"Saved best configuration to {best_config_file}")
+
+        return study
     except Exception as e:
         print(f"Error during optimization: {e}")
+        return None
+
+
+if __name__ == "__main__":
+    main()

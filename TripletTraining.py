@@ -1,29 +1,33 @@
+import argparse
 import os
 import random
-import argparse
-import yaml
 import re
 import sys
-from pprint import pprint
+
+import yaml
 
 # Add the current directory to sys.path to ensure module imports work correctly
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
+import pandas as pd
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
-import pandas as pd
-from torch.utils.data import Dataset, DataLoader
-from transformers import AutoTokenizer, AutoModel
+import torch.optim as optim
+from torch.utils.data import DataLoader, Dataset
+from transformers import AutoModel, AutoTokenizer
 
 # Handle import with careful error handling
 try:
     # Try direct import
-    from utils.utils import preprocess_text
+    # Import and register the YAML constructor
     from utils.LoaderSetup import join_constructor
+    from utils.utils import preprocess_text
+
+    # Register the YAML constructor
+    yaml.add_constructor("!join", join_constructor, Loader=yaml.SafeLoader)
 
     print("Successfully imported from utils modules")
 except ImportError as e:
@@ -50,7 +54,7 @@ except ImportError as e:
 config_path = os.path.join(current_dir, "config.yml")
 with open(config_path, "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
-    pprint(config)
+    # Remove the pprint(config) call
 
 # Constants
 SEED = config["SEED"]

@@ -22,31 +22,15 @@ from sklearn.preprocessing import LabelEncoder
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 from transformers import AutoModel, AutoTokenizer
+from TripletTraining import TripletEmbeddingModel
 
-
+# Import join_constructor and register it for YAML loading
 from utils.LoaderSetup import join_constructor
 
+yaml.add_constructor("!join", join_constructor, Loader=yaml.SafeLoader)
 
-# Try fallback import strategies
-# try:
-#     # First try the PascalCase import
-#     from utils.LoaderSetup import join_constructor
-# except ImportError:
-#     try:
-#         # Then try the snake_case import
-#         from utils.loader_setup import join_constructor
-
-#         print("Warning: Imported from loader_setup instead of LoaderSetup")
-#     except ImportError:
-#         # Manual import if module cannot be found
-#         def join_constructor(loader, node):
-#             seq = loader.construct_sequence(node)
-#             return "".join(seq)
-
-#         yaml.add_constructor("!join", join_constructor, Loader=yaml.SafeLoader)
-#         print("Warning: Created local join_constructor function")
-
-from TripletTraining import TripletEmbeddingModel
+# Import device utils to ensure proper MPS detection
+from utils.device_utils import get_device
 
 # Verify the file structure and print debug info
 utils_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "utils")
@@ -593,9 +577,8 @@ def preprocess_text(text):
 
 def get_default_device():
     """Get the default compute device for PyTorch."""
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    return torch.device("cpu")
+    # Use the unified device detection function
+    return get_device()
 
 
 def main():
@@ -613,9 +596,7 @@ def main():
         with open(best_config_file, "r", encoding="utf-8") as f:
             best_config = yaml.safe_load(f)
         print(f"Loaded best configuration from: {best_config_file}")
-        print("Configuration parameters:")
-        for key, value in best_config.items():
-            print(f"  - {key}: {value}")
+        # Remove the detailed configuration printing
     else:
         print("No best configuration file found. Using default parameters.")
 
@@ -732,26 +713,50 @@ def main():
     print("MODEL TRAINING SUMMARY")
     print("=" * 80)
     print(f"Pretrained Model: {MODEL_NAME}")
-    print(f"Architecture:")
+    print("Architecture:")
     print(f"  - Embedding Model: {triplet_model.__class__.__name__}")
-    print(f"  - Classifier: {classifier.__class__.__name__}")
-    print(f"    - Input Dimension: {classifier_input_size}")
-    print(f"    - Output Classes: {NUM_LABEL}")
-    print(f"    - Dropout Rate: {classifier_dropout}")
-    print(f"    - Activation Function: {classifier_activation}")
-    print(f"Training:")
+
+    # Improved classifier architecture reporting
+    if isinstance(classifier, nn.Sequential):
+        print("  - Classifier: Custom Sequential Architecture")
+        print(f"    - Input Dimension: {classifier_input_size}")
+        print(f"    - Output Classes: {NUM_LABEL}")
+        print(f"    - Hidden Layers: {n_hidden}")
+
+        # Display each layer's configuration
+        for i in range(n_hidden):
+            width_key = f"hidden_units_{i}"
+            width = best_config.get(width_key, classifier_input_size // (2 ** (i + 1)))
+            print(f"      - Layer {i + 1}: {width} units")
+
+        print(f"    - Dropout Rate: {classifier_dropout}")
+        print(f"    - Activation Function: {classifier_activation}")
+    else:
+        print(f"  - Classifier: {classifier.__class__.__name__}")
+        print(f"    - Input Dimension: {classifier_input_size}")
+        print(f"    - Output Classes: {NUM_LABEL}")
+        print(f"    - Dropout Rate: {classifier_dropout}")
+        print(f"    - Activation Function: {classifier_activation}")
+
+    print("Training:")
     print(f"  - Optimizer: {optimizer.__class__.__name__}")
     print(f"  - Learning Rate: {lr}")
+    if optimizer_choice == "sgd" or optimizer_choice == "rmsprop":
+        print(f"  - Momentum: {best_config.get('momentum', 0.0)}")
+    if optimizer_choice == "rmsprop":
+        print(f"  - Alpha: {best_config.get('alpha', 0.99)}")
+    print(f"  - Weight Decay: {weight_decay}")
     print(f"  - Batch Size: {BATCH_SIZE}")
     print(f"  - Max Sequence Length: {MAX_SEQ_LEN}")
-    print(f"Test Performance:")
+    print("Test Performance:")
     print(f"  - Loss: {test_loss:.4f}")
     print(f"  - Accuracy: {test_acc * 100:.2f}%")
     print(f"  - F1 Score: {test_f1:.4f}")
-    print(f"File Locations:")
+    print("File Locations:")
     print(f"  - Model Saved To: {model_save_path}")
     print(f"  - Embeddings Model: {EMBEDDING_PATH}")
     print(f"  - Training Data: {TRAIN_CSV}")
+    print(f"  - Configuration: {best_config_file}")
     print("=" * 80)
 
     return model, test_acc, test_f1

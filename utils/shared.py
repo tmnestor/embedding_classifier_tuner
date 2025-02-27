@@ -81,12 +81,15 @@ def load_triplet_model(device):
 
     # Create a fresh model with the specified MODEL name regardless
     try:
-        base_model = AutoModel.from_pretrained(MODEL_NAME).to(device)
-        triplet_model = TripletEmbeddingModel(base_model).to(device)
-    except Exception as e:
-        print(f"Error loading model {MODEL_NAME}: {e}")
-        print(f"Falling back to {MODEL} instead")
+        # Fix: Use MODEL instead of MODEL_NAME here, as MODEL is defined from config
         base_model = AutoModel.from_pretrained(MODEL).to(device)
+        triplet_model = TripletEmbeddingModel(base_model).to(device)
+    except (OSError, ValueError, RuntimeError) as e:
+        # More specific exceptions for model loading failures
+        print(f"Error loading model {MODEL}: {e}")
+        print("Falling back to default model")
+        # Attempt to use a default model as fallback
+        base_model = AutoModel.from_pretrained("bert-base-uncased").to(device)
         triplet_model = TripletEmbeddingModel(base_model).to(device)
 
     # If saved model exists, try to load its weights with appropriate error handling
@@ -110,7 +113,8 @@ def load_triplet_model(device):
             print(
                 f"Loaded {len(pretrained_dict)}/{len(checkpoint)} parameters successfully"
             )
-        except Exception as e:
+        except (RuntimeError, KeyError, ValueError) as e:
+            # More specific exceptions for state_dict loading issues
             warnings.warn(f"Error loading saved model weights: {e}. Using fresh model.")
     else:
         print(f"Warning: No saved model found at {EMBEDDING_PATH}. Using fresh model.")
@@ -139,8 +143,10 @@ def create_dummy_embedding_data(device, num_samples=1000, num_classes=5):
         (VAL_CSV, int(num_samples * 0.2)),
         (TEST_CSV, int(num_samples * 0.2)),
     ]:
-        # Generate random data
-        embeddings = torch.randn(num, embedding_dim).numpy().tolist()
+        # Generate random data with specified device
+        embeddings = (
+            torch.randn(num, embedding_dim, device=device).cpu().numpy().tolist()
+        )
         labels = np.random.randint(0, num_classes, num)
         label_names = [f"class_{i}" for i in labels]
 
@@ -218,7 +224,8 @@ def generate_embedding_csv_data(triplet_model, device):
 
                 normalized = F.normalize(outputs, p=2, dim=1)
                 all_embeddings.extend(normalized.cpu().numpy().tolist())
-            except Exception as e:
+            except (RuntimeError, ValueError, IndexError) as e:
+                # More specific exceptions for embedding computation issues
                 print(f"Error processing batch: {e}")
                 # Add zero embeddings as fallback
                 embedding_dim = triplet_model.base_model.config.hidden_size
@@ -263,7 +270,8 @@ class EmbeddingDataset(Dataset):
         try:
             self.df["embedding"] = self.df["embedding"].apply(eval)
         except (SyntaxError, ValueError) as e:
-            raise ValueError(f"Error parsing embeddings in {csv_file}: {e}")
+            # Fix: Use the "from e" syntax to preserve the exception context
+            raise ValueError(f"Error parsing embeddings in {csv_file}: {e}") from e
 
         try:
             self.embeddings = torch.tensor(
@@ -273,7 +281,8 @@ class EmbeddingDataset(Dataset):
                 self.df["label_enc"].tolist(), dtype=torch.long, device=device
             )
         except Exception as e:
-            raise ValueError(f"Error converting embeddings to tensors: {e}")
+            # Fix: Use the "from e" syntax here too
+            raise ValueError(f"Error converting embeddings to tensors: {e}") from e
 
     def __getitem__(self, idx):
         return self.embeddings[idx], self.labels[idx]
@@ -311,16 +320,18 @@ def load_embedding_data(device):
         df_train = pd.read_csv(TRAIN_CSV)
         label_encoder = LabelEncoder()
         label_encoder.fit(df_train["labels"])
-        global NUM_LABEL
-        NUM_LABEL = len(label_encoder.classes_)
+
+        # Instead of modifying the global NUM_LABEL, return it as part of the function output
+        num_label = len(label_encoder.classes_)
 
         train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
         val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False)
         test_loader = DataLoader(test_ds, batch_size=BATCH_SIZE, shuffle=False)
 
-        print(f"Loaded embedding data successfully: {NUM_LABEL} classes")
-        return train_loader, val_loader, test_loader, label_encoder
-    except Exception as e:
+        print(f"Loaded embedding data successfully: {num_label} classes")
+        return train_loader, val_loader, test_loader, label_encoder, num_label
+    except (FileNotFoundError, pd.errors.EmptyDataError, ValueError, KeyError) as e:
+        # More specific exceptions for data loading issues
         print(f"Error loading embedding data: {e}")
         raise
 

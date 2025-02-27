@@ -138,23 +138,51 @@ def main():
 
     model.eval()
 
-    # Print a summary of the model architecture and parameters
+    # Print a consolidated model verification summary
     print("\n" + "=" * 80)
     print("MODEL VERIFICATION")
     print("=" * 80)
     print(f"Pretrained Model: {config['MODEL_NAME']}")
-    print(f"Architecture:")
+    print("Architecture:")
     print(f"  - Embedding Model: {triplet_model.__class__.__name__}")
-    print(f"  - Classifier: {classifier.__class__.__name__}")
-    print(f"    - Input Dimension: {classifier_input_size}")
-    print(f"    - Output Classes: {NUM_LABEL}")
-    print(f"    - Dropout Rate: {classifier_dropout}")
-    print(f"    - Activation Function: {classifier_activation}")
-    print(f"File Locations:")
+
+    # Classifier architecture reporting
+    if isinstance(classifier, nn.Sequential):
+        print("  - Classifier: Custom Sequential Architecture")
+        print(f"    - Input Dimension: {classifier_input_size}")
+        print(f"    - Output Classes: {NUM_LABEL}")
+        print(f"    - Hidden Layers: {n_hidden}")
+
+        # Display each layer's configuration
+        for i in range(n_hidden):
+            width_key = f"hidden_units_{i}"
+            width = best_config.get(width_key, classifier_input_size // (2 ** (i + 1)))
+            print(f"      - Layer {i + 1}: {width} units")
+    else:
+        print(f"  - Classifier: {classifier.__class__.__name__}")
+        print(f"    - Input Dimension: {classifier_input_size}")
+        print(f"    - Output Classes: {NUM_LABEL}")
+
+    # Consolidated parameter section
+    print("Parameters:")
+    print(f"  - Dropout Rate: {classifier_dropout}")
+    print(f"  - Activation Function: {classifier_activation}")
+    print(f"  - Optimizer: {best_config.get('optimizer', 'adamw')}")
+    print(f"  - Learning Rate: {best_config.get('lr', config['LEARNING_RATE'])}")
+
+    if "momentum" in best_config:
+        print(f"  - Momentum: {best_config.get('momentum')}")
+    if "alpha" in best_config:
+        print(f"  - Alpha: {best_config.get('alpha')}")
+    if "weight_decay" in best_config:
+        print(f"  - Weight Decay: {best_config.get('weight_decay')}")
+
+    print("File Locations:")
     print(f"  - Model Loaded From: {checkpoint_path}")
     print(f"  - Embeddings Model: {EMBEDDING_PATH}")
     print(f"  - Training Data: {TRAIN_FILE}")
     print(f"  - Test File: {TEST_FILE}")
+    print(f"  - Best Config File: {best_config_file}")
     print("=" * 80)
 
     # Read testing data into DataFrame
