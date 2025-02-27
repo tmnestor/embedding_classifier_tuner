@@ -8,19 +8,22 @@ This project provides a streamlined framework for training and fine-tuning a BER
 2. Generate and save text embeddings to avoid recomputation during tuning
 3. Optimize classifier architecture and hyperparameters using Optuna
 4. Train a classifier on top of the pre-trained embeddings
-5. Make predictions on new text data with the trained model
+5. Evaluate model performance through cross-validation and advanced metrics
+6. Make predictions on new text data with the trained model
 
 ## Project Structure
 
 - `BertClassification.py`: Core module for classifier training, embedding generation, and model evaluation
 - `TripletTraining.py`: Trains embeddings using triplet loss to create better text representations
 - `TuneBert.py`: Performs hyperparameter optimization using Optuna to find the best classifier architecture
+- `Evaluation.py`: Conducts robust model evaluation through cross-validation and detailed metrics analysis
 - `Predict.py`: Applies the trained model to make predictions on new text data
 - `config.yml`: Central configuration file that controls all aspects of the pipeline
 - `utils/`: Utility modules supporting the main functionality
   - `shared.py`: Shared functions used across multiple scripts
   - `utils.py`: General utility functions for text processing and device handling
   - `LoaderSetup.py`: YAML loading utilities
+  - `device_utils.py`: Hardware detection and optimization utilities
 
 ## Data Pipeline
 
@@ -50,7 +53,16 @@ The trained triplet model is used to generate embeddings for all text data, whic
 - The optimized architecture from TuneBert.py
 - A default architecture if no tuning has been performed
 
-### 5. Model Application
+### 5. Model Evaluation
+
+`Evaluation.py` provides robust assessment of classifier performance through:
+- K-fold cross-validation (configurable number of folds)
+- Comprehensive metrics (accuracy, F1, precision, recall)
+- Confusion matrices for error analysis
+- Word clouds of frequently misclassified terms
+- Detailed metrics reports saved as CSV files
+
+### 6. Model Application
 
 `Predict.py` loads the trained model and makes predictions on new text data, adding predicted labels to the output.
 
@@ -65,9 +77,10 @@ The trained triplet model is used to generate embeddings for all text data, whic
 - matplotlib
 - seaborn
 - PyYAML
+- wordcloud
 
 ```bash
-pip install torch transformers optuna scikit-learn pandas matplotlib seaborn pyyaml tqdm
+pip install torch transformers optuna scikit-learn pandas matplotlib seaborn pyyaml tqdm wordcloud
 ```
 
 ## Configuration
@@ -104,7 +117,14 @@ python BertClassification.py
 ```
 Trains the classifier using either the tuned architecture or default settings, providing detailed performance metrics and learning curves.
 
-### 4. Make Predictions
+### 4. Evaluate Model Performance
+
+```bash
+python Evaluation.py --folds 5 --epochs 10 --bigrams
+```
+Runs cross-validation to assess model robustness, generates confusion matrices, and creates word clouds to visualize frequently misclassified terms.
+
+### 5. Make Predictions
 
 ```bash
 python Predict.py
@@ -127,6 +147,8 @@ The classifier architecture can be:
 Training and validation metrics are automatically plotted and saved, including:
 - Loss curves
 - F1 score progression
+- Confusion matrices
+- Word clouds of misclassified terms
 - Detailed summaries in console output
 
 ## Device Support
@@ -141,3 +163,4 @@ The code automatically selects the best available device:
 - Always train embeddings before classifier training
 - The embedding files can be reused across multiple experiments
 - To improve performance, adjust `NUM_TRIALS` in `TuneBert.py` for more thorough hyperparameter search
+- For robust evaluation, increase folds in `Evaluation.py` (e.g., `--folds 10`)
