@@ -184,10 +184,25 @@ def train_triplet(epochs=5, lr=2e-5):  # Add epochs and lr as arguments
 
     # Save the learned model
     os.makedirs(config["CHECKPOINT_DIR"], exist_ok=True)
-    torch.save(
-        model.state_dict(), os.path.join(config["CHECKPOINT_DIR"], "triplet_model.pt")
-    )
-    print("Triplet model saved.")
+    model_save_path = os.path.join(config["CHECKPOINT_DIR"], "triplet_model.pt")
+    torch.save(model.state_dict(), model_save_path)
+
+    # Add message showing where the model was saved
+    print("\n" + "=" * 70)
+    print("TRIPLET MODEL TRAINING COMPLETE")
+    print("=" * 70)
+    print(f"Model saved to: {os.path.abspath(model_save_path)}")
+    print(f"Model type: {model.__class__.__name__}")
+    print(f"Base model: {MODEL_NAME}")
+    print(f"Input dimension: {base_model.config.hidden_size}")
+    print(f"Output embedding dimension: {base_model.config.hidden_size}")
+    print("=" * 70)
+    print("Next steps:")
+    print("1. Run BertClassification.py to generate embeddings and train classifier")
+    print("   python BertClassification.py")
+    print("2. Or run TuneBert.py to optimize classifier architecture")
+    print("   python TuneBert.py")
+    print("=" * 70)
 
 
 if __name__ == "__main__":

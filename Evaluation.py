@@ -494,9 +494,16 @@ def generate_misclassification_word_clouds(
     misclassifications: List[Dict],
     class_names: List[str],
     output_dir: str,
-    use_bigrams: bool = True,
+    use_ngrams: str = "uni",  # Changed default from "bi" to "uni"
 ):
-    """Generate word clouds for misclassified texts per class"""
+    """Generate word clouds for misclassified texts per class
+
+    Args:
+        misclassifications: List of misclassified examples
+        class_names: List of class names
+        output_dir: Directory to save output files
+        use_ngrams: Which n-grams to use ("uni", "bi", "tri", "all")
+    """
     os.makedirs(output_dir, exist_ok=True)
 
     # Combine misclassifications across all folds
@@ -576,38 +583,56 @@ def generate_misclassification_word_clouds(
         # Combine all texts
         combined_text = " ".join(texts)
 
-        # Create word frequency dictionary using our custom functions
+        # Create word frequency dictionaries using our custom functions
         tokens = simple_tokenize(combined_text)
         filtered_tokens = [word for word in tokens if word not in stop_words]
-        if use_bigrams:
-            # Create bigrams using custom function
-            bigrams = list(generate_ngrams(filtered_tokens, 2))
-            word_freq = Counter([f"{w1}_{w2}" for w1, w2 in bigrams])
-        else:
-            # Use single words
-            word_freq = Counter(filtered_tokens)
 
-        if not word_freq:
-            print(f"No meaningful words found for class {cls}")
-            continue
+        # Create frequency maps for different n-gram levels
+        ngram_types = []
+        if use_ngrams == "all" or use_ngrams == "uni":
+            ngram_types.append(("unigrams", 1))
+        if use_ngrams == "all" or use_ngrams == "bi":
+            ngram_types.append(("bigrams", 2))
+        if use_ngrams == "all" or use_ngrams == "tri":
+            ngram_types.append(("trigrams", 3))
 
-        # Create word cloud
-        wordcloud = WordCloud(
-            width=800,
-            height=400,
-            background_color="white",
-            max_words=100,
-            stopwords=stop_words,
-        ).generate_from_frequencies(word_freq)
+        for ngram_name, n in ngram_types:
+            if n == 1:
+                # Use single words (unigrams)
+                word_freq = Counter(filtered_tokens)
+                suffix = "unigrams"
+            else:
+                # Create n-grams using custom function
+                ngrams = list(generate_ngrams(filtered_tokens, n))
+                word_freq = Counter([f"{' '.join(gram)}" for gram in ngrams])
+                suffix = f"{ngram_name}"
 
-        # Plot and save
-        plt.figure(figsize=(10, 5))
-        plt.imshow(wordcloud, interpolation="bilinear")
-        plt.axis("off")
-        plt.title(f"Misclassified Words for Class: {cls}")
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, f"wordcloud_{cls.replace(' ', '_')}.png"))
-        plt.close()
+            if not word_freq:
+                print(f"No meaningful {ngram_name} found for class {cls}")
+                continue
+
+            # Create word cloud
+            wordcloud = WordCloud(
+                width=800,
+                height=400,
+                background_color="white",
+                max_words=100,
+                stopwords=stop_words,
+                collocations=False,  # Important: disable automatic bigrams
+            ).generate_from_frequencies(word_freq)
+
+            # Plot and save
+            plt.figure(figsize=(10, 5))
+            plt.imshow(wordcloud, interpolation="bilinear")
+            plt.axis("off")
+            plt.title(f"Misclassified {ngram_name.title()} for Class: {cls}")
+            plt.tight_layout()
+            plt.savefig(
+                os.path.join(
+                    output_dir, f"wordcloud_{cls.replace(' ', '_')}_{suffix}.png"
+                )
+            )
+            plt.close()
 
     print(f"Word clouds saved to {output_dir}")
 
@@ -623,7 +648,11 @@ def main():
         "--folds", type=int, default=5, help="Number of cross-validation folds"
     )
     parser.add_argument(
-        "--bigrams", action="store_true", help="Use bigrams in word clouds"
+        "--ngrams",
+        type=str,
+        default="uni",  # Changed default from "bi" to "uni"
+        choices=["uni", "bi", "tri", "all"],
+        help="N-grams to use in word clouds (uni, bi, tri, or all)",
     )
     parser.add_argument(
         "--epochs", type=int, default=10, help="Number of epochs per fold"
@@ -685,7 +714,7 @@ def main():
         results["misclassifications"],
         results["classes"],
         output_dir=wordcloud_dir,
-        use_bigrams=args.bigrams,  # Use command line argument
+        use_ngrams=args.ngrams,  # Pass ngrams argument
     )
 
     # Save detailed metrics to CSV

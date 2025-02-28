@@ -458,6 +458,7 @@ def generate_embedding_csv_data(triplet_model, device):
     df_train_val, df_test = train_test_split(
         df, test_size=0.2, random_state=SEED, stratify=df["labels"]
     )
+    # Fix the syntax error - correct the stratify parameter
     df_train, df_val = train_test_split(
         df_train_val, test_size=0.25, random_state=SEED, stratify=df_train_val["labels"]
     )
@@ -581,6 +582,72 @@ def get_default_device():
     return get_device()
 
 
+def create_classifier_from_config(config, input_dim, output_dim):
+    """Create a classifier based on a complete configuration.
+    This is a standardized function to ensure consistent architecture creation.
+    """
+    model_type = config.get("model_type", "sequential")
+
+    # Standardized parameter extraction with clear defaults
+    dropout_rate = config.get("dropout_rate", 0.3)
+    activation_fn = config.get("activation", "gelu")
+
+    # Check for explicit architecture information first
+    if "architecture" in config:
+        print("Creating classifier from explicit architecture definition")
+        architecture = config["architecture"]
+        layers = []
+
+        # Create each layer according to its definition
+        for layer in architecture:
+            if layer["layer_type"] == "dense_block":
+                block = DenseBlock(
+                    layer["input_size"],
+                    layer["output_size"],
+                    layer.get("dropout_rate", dropout_rate),
+                    layer.get("activation", activation_fn),
+                )
+                layers.append(block)
+            elif layer["layer_type"] == "linear":
+                layers.append(nn.Linear(layer["input_size"], layer["output_size"]))
+
+        return nn.Sequential(*layers)
+
+    # Fall back to n_hidden + hidden_units_X pattern if architecture not explicitly defined
+    elif "n_hidden" in config:
+        print("Creating classifier from n_hidden and hidden_units parameters")
+        n_hidden = config["n_hidden"]
+        layers = []
+        prev_width = input_dim
+
+        # For each hidden layer, get its width from config
+        for i in range(n_hidden):
+            width_key = f"hidden_units_{i}"
+            if width_key in config:
+                width = config[width_key]
+                print(f"  Layer {i + 1}: {prev_width} → {width}")
+            else:
+                # Default fallback with clear warning
+                width = prev_width // 2
+                print(
+                    f"  WARNING: Missing {width_key} in config, using default: {width}"
+                )
+
+            layers.append(DenseBlock(prev_width, width, dropout_rate, activation_fn))
+            prev_width = width
+
+        # Add output layer
+        print(f"  Output layer: {prev_width} → {output_dim}")
+        layers.append(nn.Linear(prev_width, output_dim))
+
+        return nn.Sequential(*layers)
+
+    # Fall back to default FFModel as last resort
+    else:
+        print("Using default FFModel architecture (no architecture details in config)")
+        return FFModel(input_dim, output_dim, dropout_rate, activation_fn=activation_fn)
+
+
 def main():
     DEVICE = get_default_device()
     print(f"Using device: {DEVICE}")
@@ -596,7 +663,18 @@ def main():
         with open(best_config_file, "r", encoding="utf-8") as f:
             best_config = yaml.safe_load(f)
         print(f"Loaded best configuration from: {best_config_file}")
-        # Remove the detailed configuration printing
+
+        # Option to verify configuration integrity if hash is available
+        if "architecture_hash" in best_config and "architecture" in best_config:
+            import hashlib
+
+            arch_str = str(best_config["architecture"])
+            current_hash = hashlib.md5(arch_str.encode()).hexdigest()
+            stored_hash = best_config["architecture_hash"]
+            if current_hash != stored_hash:
+                print("WARNING: Architecture definition may have been modified!")
+            else:
+                print("Architecture integrity verified ✓")
     else:
         print("No best configuration file found. Using default parameters.")
 
@@ -617,51 +695,32 @@ def main():
     # Get input dimension from triplet model
     classifier_input_size = triplet_model.base_model.config.hidden_size
 
-    # Get common parameters regardless of architecture choice
-    classifier_dropout = best_config.get("dropout_rate", DROP_OUT)
-    classifier_activation = best_config.get("activation", ACT_FN)
+    # Ensure config has all necessary dimensions (update if needed)
+    config_updated = False
+    if (
+        "input_dim" not in best_config
+        or best_config["input_dim"] != classifier_input_size
+    ):
+        best_config["input_dim"] = classifier_input_size
+        config_updated = True
 
-    # Check if we should create a tuned model architecture or use the default FFModel
-    if "n_hidden" in best_config and "hidden_units_0" in best_config:
-        print("Using tuned architecture from best configuration")
-        # Create a dynamic model based on the tuned architecture parameters
-        layers = []
-        prev_width = classifier_input_size
-        n_hidden = best_config.get(
-            "n_hidden", 2
-        )  # Default to 2 hidden layers if not specified
+    if "output_dim" not in best_config or best_config["output_dim"] != NUM_LABEL:
+        best_config["output_dim"] = NUM_LABEL
+        config_updated = True
 
-        # Build the hidden layers based on best_config
-        for i in range(n_hidden):
-            width_key = f"hidden_units_{i}"
-            if width_key in best_config:
-                width = best_config[width_key]
-            else:
-                width = prev_width // 2  # Default to halving the previous width
+    # Create the classifier using our standardized function
+    classifier = create_classifier_from_config(
+        best_config, classifier_input_size, NUM_LABEL
+    )
 
-            layers.append(
-                DenseBlock(prev_width, width, classifier_dropout, classifier_activation)
-            )
-            prev_width = width
-
-        # Add the final output layer
-        layers.append(nn.Linear(prev_width, NUM_LABEL))
-
-        # Create the classifier as a sequential model
-        classifier = nn.Sequential(*layers)
-        print(f"Created tuned classifier architecture with {n_hidden} hidden layers")
-    else:
-        # Use the default FFModel architecture
-        print("Using default FFModel architecture")
-        classifier = FFModel(
-            classifier_input_size,
-            NUM_LABEL,
-            classifier_dropout,
-            activation_fn=classifier_activation,
-        )
-
-    # Create the full model with the classifier
+    # Create the full model
     model = BertClassifier(triplet_model, classifier).to(DEVICE)
+
+    # Only update config file if necessary
+    if config_updated:
+        print("Updating configuration file with current dimensions")
+        with open(best_config_file, "w", encoding="utf-8") as f:
+            yaml.dump(best_config, f)
 
     # Override optimizer settings if available.
     lr = float(best_config.get("lr", LEARNING_RATE))  # Cast lr to float
@@ -721,22 +780,34 @@ def main():
         print("  - Classifier: Custom Sequential Architecture")
         print(f"    - Input Dimension: {classifier_input_size}")
         print(f"    - Output Classes: {NUM_LABEL}")
+
+        # Get n_hidden safely from the config or count layers in sequential model
+        n_hidden = best_config.get("n_hidden", 0)
+        if n_hidden == 0:
+            # Count DenseBlock layers in sequential model
+            n_hidden = sum(1 for m in classifier if isinstance(m, DenseBlock))
+
         print(f"    - Hidden Layers: {n_hidden}")
 
-        # Display each layer's configuration
+        # Display each layer's configuration only if n_hidden > 0
         for i in range(n_hidden):
             width_key = f"hidden_units_{i}"
             width = best_config.get(width_key, classifier_input_size // (2 ** (i + 1)))
             print(f"      - Layer {i + 1}: {width} units")
 
+        # Extract dropout rate and activation function if available
+        classifier_dropout = best_config.get("dropout_rate", DROP_OUT)
+        classifier_activation = best_config.get("activation", ACT_FN)
+
         print(f"    - Dropout Rate: {classifier_dropout}")
         print(f"    - Activation Function: {classifier_activation}")
     else:
+        # For non-sequential classifiers like FFModel
         print(f"  - Classifier: {classifier.__class__.__name__}")
         print(f"    - Input Dimension: {classifier_input_size}")
         print(f"    - Output Classes: {NUM_LABEL}")
-        print(f"    - Dropout Rate: {classifier_dropout}")
-        print(f"    - Activation Function: {classifier_activation}")
+        print(f"    - Dropout Rate: {best_config.get('dropout_rate', DROP_OUT)}")
+        print(f"    - Activation Function: {best_config.get('activation', ACT_FN)}")
 
     print("Training:")
     print(f"  - Optimizer: {optimizer.__class__.__name__}")

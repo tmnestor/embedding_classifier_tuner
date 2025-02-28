@@ -1,20 +1,23 @@
 import os
 import yaml
 import torch
-import torch.nn as nn
+import argparse
 import pandas as pd
 from torch.utils.data import DataLoader, Dataset
-from transformers import AutoTokenizer
 from sklearn.preprocessing import LabelEncoder
-from utils.utils import get_default_device, preprocess_text
+from utils.device_utils import get_device
+from utils.LoaderSetup import join_constructor
 
-# from utils.LoaderSetup import join_constructor
+# Register YAML constructor
+yaml.add_constructor("!join", join_constructor, Loader=yaml.SafeLoader)
+
+# Import shared components to ensure consistency
 from BertClassification import (
     load_triplet_model,
-    FFModel,
+    create_classifier_from_config,
     BertClassifier,
-    DenseBlock,
-)  # Reuse existing model definitions
+    preprocess_text,
+)
 
 
 # New on-the-fly prediction dataset
@@ -41,177 +44,175 @@ class PredictionDataset(Dataset):
 
 
 def main():
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description="Make predictions with trained model")
+    parser.add_argument("--input", type=str, help="Path to input CSV file")
+    parser.add_argument(
+        "--output", type=str, help="Path to output predictions CSV file"
+    )
+    parser.add_argument(
+        "--verbose", action="store_true", help="Show detailed model information"
+    )
+    parser.add_argument(
+        "--config", type=str, help="Path to specific config file (overrides default)"
+    )
+    args = parser.parse_args()
+
     # Load configuration
     with open("config.yml", "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
+    # Device setup
+    device = get_device()
+    print(f"Using device: {device}")
+
     # Paths and constants
     DATA_ROOT = config["DATA_PATH"]
-    TEST_FILE = os.path.join(DATA_ROOT, "testing_data.csv")
+    TEST_FILE = (
+        args.input if args.input else os.path.join(DATA_ROOT, "testing_data.csv")
+    )
+    OUTPUT_FILE = args.output if args.output else TEST_FILE
     TRAIN_FILE = config["TRAIN_CSV"]
     CHECKPOINT_DIR = config["CHECKPOINT_DIR"]
     EMBEDDING_PATH = config["EMBEDDING_PATH"]
     BEST_CONFIG_DIR = config["BEST_CONFIG_DIR"]
     STUDY_NAME = config["STUDY_NAME"]
+    MAX_SEQ_LEN = config["MAX_SEQ_LEN"]
 
-    # Get device and tokenizer
-    DEVICE = get_default_device()
+    # Load tokenizer
+    from transformers import AutoTokenizer
+
     tokenizer = AutoTokenizer.from_pretrained(config["MODEL"])
 
     # Load triplet model
-    triplet_model = load_triplet_model(DEVICE)
+    triplet_model = load_triplet_model(device)
+    classifier_input_size = triplet_model.base_model.config.hidden_size
 
-    # Load best configuration from BEST_CONFIG_DIR in the config
-    best_config_file = os.path.join(BEST_CONFIG_DIR, f"best_config_{STUDY_NAME}.yml")
-    best_config = {}
-
-    if os.path.exists(best_config_file):
-        with open(best_config_file, "r", encoding="utf-8") as f:
-            best_config = yaml.safe_load(f)
-        print(f"Loaded best configuration from: {best_config_file}")
-    else:
-        print("No best configuration found. Using default parameters.")
-
-    # Re-create classifier architecture using best config or defaults.
-    classifier_dropout = best_config.get("dropout_rate", config["DROP_OUT"])
-    classifier_activation = best_config.get("activation", config["ACT_FN"])
-
-    # Re-fit label encoder on training data to obtain class mapping
+    # Get class mapping from training data
     train_df = pd.read_csv(TRAIN_FILE)
     label_encoder = LabelEncoder()
     label_encoder.fit(train_df["labels"])
-    NUM_LABEL = len(label_encoder.classes_)
+    num_classes = len(label_encoder.classes_)
+    print(f"Found {num_classes} classes: {label_encoder.classes_}")
 
-    # Determine classifier input dimension from triplet model.
-    classifier_input_size = triplet_model.base_model.config.hidden_size
+    # Load the best configuration file
+    best_config_file = (
+        args.config
+        if args.config
+        else os.path.join(BEST_CONFIG_DIR, f"best_config_{STUDY_NAME}.yml")
+    )
 
-    # Check if we should create a tuned model architecture or use the default FFModel
-    if "n_hidden" in best_config and "hidden_units_0" in best_config:
-        print("Using tuned architecture from best configuration")
-        # Create a dynamic model based on the tuned architecture parameters
-        layers = []
-        prev_width = classifier_input_size
-        n_hidden = best_config.get(
-            "n_hidden", 2
-        )  # Default to 2 hidden layers if not specified
+    if not os.path.exists(best_config_file):
+        print(f"ERROR: Configuration file not found at {best_config_file}")
+        return
 
-        # Build the hidden layers based on best_config
-        for i in range(n_hidden):
-            width_key = f"hidden_units_{i}"
-            if width_key in best_config:
-                width = best_config[width_key]
-            else:
-                width = prev_width // 2  # Default to halving the previous width
+    with open(best_config_file, "r") as f:
+        best_config = yaml.safe_load(f)
+    print(f"Loaded configuration from: {best_config_file}")
 
-            layers.append(
-                DenseBlock(prev_width, width, classifier_dropout, classifier_activation)
-            )
-            prev_width = width
+    # Configuration validation
+    expected_input = best_config.get("input_dim")
+    expected_output = best_config.get("output_dim")
 
-        # Add the final output layer
-        layers.append(nn.Linear(prev_width, NUM_LABEL))
-
-        # Create the classifier as a sequential model
-        classifier = nn.Sequential(*layers)
-        print(f"Created tuned classifier architecture with {n_hidden} hidden layers")
-    else:
-        # Use the default FFModel architecture
-        print("Using default FFModel architecture")
-        classifier = FFModel(
-            classifier_input_size,
-            NUM_LABEL,
-            classifier_dropout,
-            activation_fn=classifier_activation,
+    if expected_input and expected_input != classifier_input_size:
+        print(
+            f"WARNING: Config specifies input_dim={expected_input} but model uses {classifier_input_size}"
         )
 
-    # Create the full model with the classifier
-    model = BertClassifier(triplet_model, classifier).to(DEVICE)
+    if expected_output and expected_output != num_classes:
+        print(
+            f"WARNING: Config specifies output_dim={expected_output} but data has {num_classes} classes"
+        )
 
-    # Load best classifier checkpoint
+    # Print configuration details in verbose mode
+    if args.verbose:
+        print("\nConfiguration details:")
+        for key, value in best_config.items():
+            if key != "architecture":  # Skip architecture because it's large
+                print(f"  {key}: {value}")
+
+        if "architecture" in best_config:
+            arch = best_config["architecture"]
+            print(f"  Architecture: {len(arch)} layers")
+            for layer in arch:
+                if "input_size" in layer and "output_size" in layer:
+                    print(
+                        f"    {layer['layer_type']}: {layer['input_size']} → {layer['output_size']}"
+                    )
+
+    # Create classifier using the standardized function
+    classifier = create_classifier_from_config(
+        best_config, classifier_input_size, num_classes
+    )
+
+    # Create the full model
+    model = BertClassifier(triplet_model, classifier).to(device)
+
+    # Load model weights
     checkpoint_path = os.path.join(CHECKPOINT_DIR, "model", "best_model.pt")
-    if os.path.exists(checkpoint_path):
-        checkpoint = torch.load(checkpoint_path, map_location=DEVICE)
-        model.load_state_dict(checkpoint["model_state_dict"])
-        print(f"Loaded classifier from {checkpoint_path}")
-    else:
-        raise FileNotFoundError("Best model checkpoint not found.")
+    if not os.path.exists(checkpoint_path):
+        print(f"ERROR: Checkpoint not found at {checkpoint_path}")
+        return
 
+    print(f"Loading model weights from {checkpoint_path}")
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+
+    try:
+        model.load_state_dict(checkpoint["model_state_dict"])
+        print("Model loaded successfully!")
+    except RuntimeError as e:
+        print(f"ERROR: Failed to load model weights: {e}")
+        print("\nArchitecture mismatch between saved weights and configuration.")
+        print(
+            "This means the best_config.yml file does not match the architecture used to train the model."
+        )
+        print("Options to resolve this:")
+        print(
+            "1. Run TuneBert.py again to create a new configuration with proper architecture details"
+        )
+        print(
+            "2. Run BertClassification.py with the same configuration used during training"
+        )
+        return
+
+    # Set model to evaluation mode
     model.eval()
 
-    # Print a consolidated model verification summary
-    print("\n" + "=" * 80)
-    print("MODEL VERIFICATION")
-    print("=" * 80)
-    print(f"Pretrained Model: {config['MODEL_NAME']}")
-    print("Architecture:")
-    print(f"  - Embedding Model: {triplet_model.__class__.__name__}")
-
-    # Classifier architecture reporting
-    if isinstance(classifier, nn.Sequential):
-        print("  - Classifier: Custom Sequential Architecture")
-        print(f"    - Input Dimension: {classifier_input_size}")
-        print(f"    - Output Classes: {NUM_LABEL}")
-        print(f"    - Hidden Layers: {n_hidden}")
-
-        # Display each layer's configuration
-        for i in range(n_hidden):
-            width_key = f"hidden_units_{i}"
-            width = best_config.get(width_key, classifier_input_size // (2 ** (i + 1)))
-            print(f"      - Layer {i + 1}: {width} units")
-    else:
-        print(f"  - Classifier: {classifier.__class__.__name__}")
-        print(f"    - Input Dimension: {classifier_input_size}")
-        print(f"    - Output Classes: {NUM_LABEL}")
-
-    # Consolidated parameter section
-    print("Parameters:")
-    print(f"  - Dropout Rate: {classifier_dropout}")
-    print(f"  - Activation Function: {classifier_activation}")
-    print(f"  - Optimizer: {best_config.get('optimizer', 'adamw')}")
-    print(f"  - Learning Rate: {best_config.get('lr', config['LEARNING_RATE'])}")
-
-    if "momentum" in best_config:
-        print(f"  - Momentum: {best_config.get('momentum')}")
-    if "alpha" in best_config:
-        print(f"  - Alpha: {best_config.get('alpha')}")
-    if "weight_decay" in best_config:
-        print(f"  - Weight Decay: {best_config.get('weight_decay')}")
-
-    print("File Locations:")
-    print(f"  - Model Loaded From: {checkpoint_path}")
-    print(f"  - Embeddings Model: {EMBEDDING_PATH}")
-    print(f"  - Training Data: {TRAIN_FILE}")
-    print(f"  - Test File: {TEST_FILE}")
-    print(f"  - Best Config File: {best_config_file}")
-    print("=" * 80)
-
-    # Read testing data into DataFrame
+    # Load test data
     df_test = pd.read_csv(TEST_FILE)
     print(f"Loaded {len(df_test)} samples from {TEST_FILE}")
 
-    # Create DataLoader using on-the-fly tokenization.
-    pred_dataset = PredictionDataset(
-        df_test["text"].tolist(), tokenizer, config["MAX_SEQ_LEN"]
-    )
+    # Create DataLoader for prediction
+    pred_dataset = PredictionDataset(df_test["text"].tolist(), tokenizer, MAX_SEQ_LEN)
     pred_loader = DataLoader(pred_dataset, batch_size=32, shuffle=False)
 
+    # Make predictions
     all_preds = []
     with torch.no_grad():
         for batch in pred_loader:
-            # Move tokens to DEVICE
-            batch = {k: v.to(DEVICE) for k, v in batch.items()}
-            # Pass through base model and classifier in one go.
-            # If your BERT_classifier is set to accept tokenized inputs:
+            batch = {k: v.to(device) for k, v in batch.items()}
             logits = model(batch)
             preds = torch.argmax(logits, dim=1).cpu().numpy().tolist()
             all_preds.extend(preds)
 
-    # Map prediction indices back to labels.
+    # Convert predictions to labels
     predicted_labels = label_encoder.inverse_transform(all_preds)
     df_test["predicted_label"] = predicted_labels
 
-    df_test.to_csv(TEST_FILE, index=False)
-    print(f"Predictions saved to {TEST_FILE}")
+    # Save results
+    df_test.to_csv(OUTPUT_FILE, index=False)
+    print(f"Predictions saved to {OUTPUT_FILE}")
+
+    # Show sample predictions
+    print("\nSample predictions:")
+    for i in range(min(5, len(df_test))):
+        text = (
+            df_test["text"].iloc[i][:50] + "..."
+            if len(df_test["text"].iloc[i]) > 50
+            else df_test["text"].iloc[i]
+        )
+        pred = df_test["predicted_label"].iloc[i]
+        print(f"{i + 1}. {text} → {pred}")
 
     return df_test
 

@@ -59,7 +59,7 @@ The trained triplet model is used to generate embeddings for all text data, whic
 - K-fold cross-validation (configurable number of folds)
 - Comprehensive metrics (accuracy, F1, precision, recall)
 - Confusion matrices for error analysis
-- Word clouds of frequently misclassified terms
+- Word clouds of frequently misclassified terms (unigrams, bigrams, trigrams)
 - Detailed metrics reports saved as CSV files
 
 ### 6. Model Application
@@ -120,9 +120,9 @@ Trains the classifier using either the tuned architecture or default settings, p
 ### 4. Evaluate Model Performance
 
 ```bash
-python Evaluation.py --folds 5 --epochs 10 --bigrams
+python Evaluation.py --folds 5 --epochs 10 --ngrams all
 ```
-Runs cross-validation to assess model robustness, generates confusion matrices, and creates word clouds to visualize frequently misclassified terms.
+Runs cross-validation to assess model robustness, generates confusion matrices, and creates word clouds of misclassified terms. The `--ngrams` parameter supports "uni" (default), "bi", "tri", or "all" to generate different n-gram word clouds.
 
 ### 5. Make Predictions
 
@@ -148,7 +148,7 @@ Training and validation metrics are automatically plotted and saved, including:
 - Loss curves
 - F1 score progression
 - Confusion matrices
-- Word clouds of misclassified terms
+- Word clouds of misclassified terms (unigrams, bigrams, or trigrams)
 - Detailed summaries in console output
 
 ## Device Support
@@ -164,3 +164,4 @@ The code automatically selects the best available device:
 - The embedding files can be reused across multiple experiments
 - To improve performance, adjust `NUM_TRIALS` in `TuneBert.py` for more thorough hyperparameter search
 - For robust evaluation, increase folds in `Evaluation.py` (e.g., `--folds 10`)
+- For detailed error analysis, use `--ngrams all` to see patterns at different n-gram levels
