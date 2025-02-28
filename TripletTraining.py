@@ -19,6 +19,15 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoModel, AutoTokenizer
 
+# Add the current directory to the path to allow importing local modules
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Import the logging utility
+from utils.logging_utils import tee_to_file
+
+# Start capturing output to log file
+log_file = tee_to_file("TripletTraining")
+
 # Handle import with careful error handling
 try:
     # Try direct import
@@ -215,3 +224,6 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=2e-5, help="Learning rate")
     args = parser.parse_args()
     train_triplet(epochs=args.epochs, lr=args.lr)
+
+    # Print log file location at the end
+    print(f"\nExecution log saved to: {log_file}")

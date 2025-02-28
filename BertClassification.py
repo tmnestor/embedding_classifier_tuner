@@ -4,6 +4,9 @@ import random
 import re
 import sys
 
+# Add the current directory to the path to allow importing local modules
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 # Add the parent directory to sys.path to ensure module imports work
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -31,6 +34,12 @@ yaml.add_constructor("!join", join_constructor, Loader=yaml.SafeLoader)
 
 # Import device utils to ensure proper MPS detection
 from utils.device_utils import get_device
+
+# Import the logging utility
+from utils.logging_utils import tee_to_file
+
+# Start capturing output to log file
+log_file = tee_to_file("BertClassification")
 
 # Verify the file structure and print debug info
 utils_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "utils")
@@ -829,6 +838,9 @@ def main():
     print(f"  - Training Data: {TRAIN_CSV}")
     print(f"  - Configuration: {best_config_file}")
     print("=" * 80)
+
+    # Print message about log file
+    print(f"\nExecution log saved to: {log_file}")
 
     return model, test_acc, test_f1
 

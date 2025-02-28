@@ -26,6 +26,19 @@ from wordcloud import WordCloud
 import re
 from typing import List, Tuple, Iterator
 
+# Add at the beginning of the file, before other imports
+import os
+import sys
+
+# Add the current directory to the path to allow importing local modules
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Import the logging utility
+from utils.logging_utils import tee_to_file
+
+# Start capturing output to log file
+log_file = tee_to_file("Evaluation")
+
 # Import necessary components from existing modules
 from utils.LoaderSetup import join_constructor
 from utils.shared import load_triplet_model, validate
@@ -746,7 +759,9 @@ def main():
     metrics_df.to_csv(metrics_path, index=False)
     print(f"Cross-validation metrics saved to {metrics_path}")
 
-    # Return results for potential further use
+    # Add at the end of the function
+    print(f"\nExecution log saved to: {log_file}")
+
     return results
 
 

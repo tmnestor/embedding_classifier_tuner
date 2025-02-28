@@ -1,4 +1,9 @@
 import os
+import sys
+
+# Add the current directory to the path to allow importing local modules
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import yaml
 import torch
 import argparse
@@ -7,6 +12,9 @@ from torch.utils.data import DataLoader, Dataset
 from sklearn.preprocessing import LabelEncoder
 from utils.device_utils import get_device
 from utils.LoaderSetup import join_constructor
+
+# Import the logging utility
+from utils.logging_utils import tee_to_file
 
 # Register YAML constructor
 yaml.add_constructor("!join", join_constructor, Loader=yaml.SafeLoader)
@@ -44,6 +52,9 @@ class PredictionDataset(Dataset):
 
 
 def main():
+    # Start capturing output to log file
+    log_file = tee_to_file("Predict")
+
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Make predictions with trained model")
     parser.add_argument("--input", type=str, help="Path to input CSV file")
@@ -213,6 +224,8 @@ def main():
         )
         pred = df_test["predicted_label"].iloc[i]
         print(f"{i + 1}. {text} → {pred}")
+
+    print(f"\nExecution log saved to: {log_file}")
 
     return df_test
 

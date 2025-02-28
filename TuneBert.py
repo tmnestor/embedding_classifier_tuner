@@ -1,4 +1,15 @@
 import os
+import sys
+
+# Add the current directory to the path to allow importing local modules
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Import the logging utility
+from utils.logging_utils import tee_to_file
+
+# Start capturing output to log file
+log_file = tee_to_file("TuneBert")
+
 import torch
 import optuna
 import torch.nn as nn
@@ -325,12 +336,14 @@ def main():
                 print(f"{complete_config[width_key]}", end=" → ")
         print(f"{complete_config['output_dim']}")
 
+        print(f"\nExecution log saved to: {log_file}")
         return study
     except Exception as e:
         print(f"Error during optimization: {e}")
         import traceback
 
         traceback.print_exc()  # Print full stack trace for better debugging
+        print(f"\nExecution log with error details saved to: {log_file}")
         return None
 
 
