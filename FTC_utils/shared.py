@@ -24,7 +24,8 @@ config_path = os.path.join(os.path.dirname(__file__), "../config.yml")
 with open(config_path, "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
 
-MODEL = config["MODEL"]
+# Use MODEL_NAME consistently throughout the codebase
+MODEL_NAME = config["MODEL_NAME"]
 # Get explicit model path if available
 MODEL_PATH = config.get("MODEL_PATH", None)
 EMBEDDING_PATH = config["EMBEDDING_PATH"]
@@ -98,11 +99,11 @@ def load_triplet_model(device):
             base_model = AutoModel.from_pretrained(MODEL_PATH, local_files_only=True).to(device)
         else:
             # Otherwise use the model name
-            base_model = AutoModel.from_pretrained(MODEL).to(device)
+            base_model = AutoModel.from_pretrained(MODEL_NAME).to(device)
             
         # Create and return the triplet model
         triplet_model = TripletEmbeddingModel(base_model).to(device)
-        print(f"Created model architecture using: {MODEL}")
+        print(f"Created model architecture using: {MODEL_NAME}")
     except Exception as e:
         print(f"ERROR loading model: {type(e).__name__}: {e}")
         raise
@@ -256,7 +257,7 @@ def generate_embedding_csv_data(triplet_model, device, generate_test=False):
             tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, local_files_only=True)
         else:
             # Otherwise use the model name
-            tokenizer = AutoTokenizer.from_pretrained(MODEL)
+            tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     except Exception as e:
         print(f"ERROR loading tokenizer: {type(e).__name__}: {e}")
         raise

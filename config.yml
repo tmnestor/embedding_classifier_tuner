@@ -15,10 +15,9 @@ base: &base
   BATCH_SIZE: 64
   MAX_SEQ_LEN: 64
   # MAX_SEQ_LEN: 16
-  MODEL: "all-mpnet-base-v2"
+  # Use MODEL_NAME consistently throughout the codebase
   MODEL_NAME: "all-mpnet-base-v2"
   # Explicitly define the model path for consistent loading
-  # MODEL_PATH: "/Users/tod/Desktop/_embedding_classifier_tuner/all-mpnet-base-v2"
   MODEL_PATH: "./all-mpnet-base-v2"
 
   # MODEL: "paraphrase-MiniLM-L6-v2"
