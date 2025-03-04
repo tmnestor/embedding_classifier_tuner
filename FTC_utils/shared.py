@@ -25,6 +25,8 @@ with open(config_path, "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
 
 MODEL = config["MODEL"]
+# Get explicit model path if available
+MODEL_PATH = config.get("MODEL_PATH", None)
 EMBEDDING_PATH = config["EMBEDDING_PATH"]
 CSV_PATH = config["CSV_PATH"]
 TRAIN_CSV = config["TRAIN_CSV"]
@@ -89,9 +91,21 @@ def load_triplet_model(device):
         )
     
     # Create the base model with exactly the same architecture as used in training
-    base_model = AutoModel.from_pretrained(MODEL).to(device)
-    triplet_model = TripletEmbeddingModel(base_model).to(device)
-    print(f"Created model architecture using: {MODEL}")
+    try:
+        # If MODEL_PATH is explicitly set in config, use it
+        if MODEL_PATH:
+            print(f"Using explicit model path from config: {MODEL_PATH}")
+            base_model = AutoModel.from_pretrained(MODEL_PATH, local_files_only=True).to(device)
+        else:
+            # Otherwise use the model name
+            base_model = AutoModel.from_pretrained(MODEL).to(device)
+            
+        # Create and return the triplet model
+        triplet_model = TripletEmbeddingModel(base_model).to(device)
+        print(f"Created model architecture using: {MODEL}")
+    except Exception as e:
+        print(f"ERROR loading model: {type(e).__name__}: {e}")
+        raise
     
     # Load the saved checkpoint
     try:
@@ -234,7 +248,18 @@ def generate_embedding_csv_data(triplet_model, device, generate_test=False):
     # It will be needed if the test set is later requested
     df_test["label_enc"] = label_encoder.transform(df_test["labels"])
     
-    tokenizer = AutoTokenizer.from_pretrained(MODEL)
+    # Load tokenizer using MODEL_PATH if available
+    try:
+        # If MODEL_PATH is explicitly set in config, use it
+        if MODEL_PATH:
+            print(f"Using explicit model path for tokenizer: {MODEL_PATH}")
+            tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, local_files_only=True)
+        else:
+            # Otherwise use the model name
+            tokenizer = AutoTokenizer.from_pretrained(MODEL)
+    except Exception as e:
+        print(f"ERROR loading tokenizer: {type(e).__name__}: {e}")
+        raise
 
     def compute_embeddings(texts, batch_size=32):
         """Process embeddings in batches to avoid memory issues"""

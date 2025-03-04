@@ -75,6 +75,8 @@ SEED = config["SEED"]
 BATCH_SIZE = config["BATCH_SIZE"]  # Use the value from config.yml
 MAX_SEQ_LEN = config["MAX_SEQ_LEN"]
 MODEL_NAME = config["MODEL_NAME"]
+# Get explicit model path if available, otherwise None
+MODEL_PATH = config.get("MODEL_PATH", None)
 CSV_PATH = config["CSV_PATH"]
 TRAIN_CSV = config["TRAIN_CSV"]
 VAL_CSV = config["VAL_CSV"]
@@ -87,8 +89,25 @@ torch.manual_seed(SEED)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load model and tokenizer
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-base_model = AutoModel.from_pretrained(MODEL_NAME).to(device)
+print(f"[DEBUG] Loading model '{MODEL_NAME}' in TripletTraining.py")
+print(f"[DEBUG] MODEL_NAME type: {type(MODEL_NAME)}")
+print(f"[DEBUG] AutoTokenizer imported from: {AutoTokenizer.__module__}")
+print(f"[DEBUG] AutoModel imported from: {AutoModel.__module__}")
+
+try:
+    # If MODEL_PATH is explicitly set, use it
+    if MODEL_PATH:
+        print(f"Using explicit model path: {MODEL_PATH}")
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, local_files_only=True)
+        base_model = AutoModel.from_pretrained(MODEL_PATH, local_files_only=True).to(device)
+    else:
+        # Otherwise use the model name
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+        base_model = AutoModel.from_pretrained(MODEL_NAME).to(device)
+except Exception as e:
+    print(f"ERROR loading model: {type(e).__name__}: {e}")
+    raise
+
 base_model.eval()
 
 # Regex for text preprocessing
