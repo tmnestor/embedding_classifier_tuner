@@ -43,7 +43,8 @@ class PredictionDataset(Dataset):
             padding="max_length",
             return_tensors="pt",
         )
-        return {k: v.squeeze(0) for k, v in encoded.items()}
+        # Return as tuple (inputs, dummy_label) to match TextDataset format
+        return {k: v.squeeze(0) for k, v in encoded.items()}, 0
 ```
 
 ## Usage
@@ -120,14 +121,85 @@ Parameters:
 
 ## Output Format
 
-The module adds a new column called `predicted_label` to the input CSV file, preserving all original data while adding predictions.
+The module adds several columns to the input CSV file:
+- `predicted_label`: The most likely class prediction
+- `confidence_score`: Confidence score for the prediction (between 0 and 1)
+- `prediction_set`: List of possible classes within the conformal prediction set
+- `prediction_set_size`: Number of classes in the prediction set
 
 Example output:
 ```
-text,labels,predicted_label
-"This is an example text",,"Electronics"
-"Another sample to classify",,"Clothing & Accessories"
+text,labels,predicted_label,confidence_score,prediction_set,prediction_set_size
+"This is an example text",,"Electronics",0.92,["Electronics"],1
+"Another sample to classify",,"Clothing",0.75,["Clothing","Electronics"],2
 ```
+
+## Conformal Prediction Sets
+
+The module uses **conformal prediction** to provide uncertainty estimates for each prediction:
+
+- A prediction set contains all classes that could be correct with the given significance level
+- The significance level (default: 0.1) controls the size of prediction sets
+- Smaller prediction sets indicate more confident predictions
+- A prediction set size of 1 means the model is highly confident in its prediction
+
+This approach offers more reliable error guarantees than standard confidence scores alone.
+
+### Programmatic Usage
+
+```python
+from FTC.Predict import load_model, predict_with_confidence
+from FTC_utils.conformal import ConformalPredictor
+
+# Load model components
+model, tokenizer, label_encoder = load_model()
+
+# Prepare conformal predictor
+conformal_predictor = ConformalPredictor(significance=0.1)
+conformal_predictor.load_calibration("path/to/calibration.npy")
+
+# Make predictions
+texts = ["Text to classify"]
+results = predict_with_confidence(
+    model, tokenizer, texts, label_encoder,
+    conformal_predictor
+)
+
+# Access results
+for i, text in enumerate(texts):
+    print(f"Text: {text}")
+    print(f"Prediction: {results['predicted_label'][i]}")
+    print(f"Confidence: {results['confidence_score'][i]:.2f}")
+    print(f"Prediction set: {results['prediction_set'][i]}")
+```
+
+## Conformal Prediction Details
+
+### Technical Background
+
+Conformal prediction provides statistically valid uncertainty quantification:
+
+- Creates prediction sets that contain the true label with a guaranteed probability (1-significance)
+- Gives more reliable uncertainty measures than standard softmax probabilities
+- Adapts automatically to the difficulty of each prediction
+
+### Calibration Process
+
+The conformal predictor needs calibration data to make valid predictions:
+
+- Uses a portion of the training data for calibration
+- The calibration data is saved to `{CALIBRATION_DIR}/calibration_scores.npy`
+- Once calibrated, the same calibration file can be reused for future predictions
+
+### Significance Level
+
+Control prediction set size with the significance parameter:
+```bash
+python FTC/Predict.py --significance 0.1
+```
+
+Lower significance (e.g., 0.05) means higher confidence but larger prediction sets.
+Higher significance (e.g., 0.2) means smaller prediction sets with lower confidence.
 
 ## Performance Considerations
 
@@ -135,6 +207,8 @@ text,labels,predicted_label
 2. **GPU/MPS Acceleration**: Automatically uses available hardware acceleration
 3. **Memory Usage**: Optimized to avoid storing duplicate tensors or unnecessary copies
 4. **Error Handling**: Graceful handling of edge cases like empty strings or malformed inputs
+5. **Large File Support**: Processes files of any size through chunked streaming
+6. **Memory Management**: Periodically clears CUDA cache to prevent memory leaks during long-running operations
 
 ## Best Practices
 
@@ -148,23 +222,40 @@ text,labels,predicted_label
 ### Custom Input Files
 
 ```bash
-python Predict.py --input /path/to/custom/input.csv --output /path/to/results.csv
+python FTC/Predict.py --input /path/to/custom/input.csv --output /path/to/results.csv
 ```
 
 ### Controlling Batch Size
 
 ```bash
-python Predict.py --batch-size 64
+python FTC/Predict.py --batch-size 64
 ```
 
-### Getting Prediction Probabilities
+### Processing Very Large Files
+
+For datasets too large to fit in memory, use the `--large-file` flag with chunked processing:
+
+```bash
+python FTC/Predict.py --input /path/to/large-dataset.csv --output /path/to/results.csv --large-file --chunk-size 10000
+```
+
+This processes the file in manageable chunks, with these benefits:
+- Constant memory usage regardless of file size
+- Progress tracking with percentage completion
+- Periodic memory cleanup
+- Automatic error recovery for problematic records
+
+### Accessing Raw Probabilities
 
 ```python
-from Predict import predict_with_probs
+# Get prediction results
+results = predict_with_confidence(model, tokenizer, texts, label_encoder, conformal_predictor)
 
-texts = ["Text to classify"]
-labels, probabilities = predict_with_probs(model, tokenizer, texts, label_encoder)
-print(f"Label: {labels[0]}, Confidence: {max(probabilities[0]):.2f}")
+# Access and use raw probabilities
+probabilities = results["probabilities"]
+print(f"Label: {results['predicted_label'][0]}, Confidence: {results['confidence_score'][0]:.2f}")
+for i, label in enumerate(label_encoder.classes_):
+    print(f"  {label}: {probabilities[0][i]:.4f}")
 ```
 
 ## Dependencies
@@ -173,3 +264,5 @@ print(f"Label: {labels[0]}, Confidence: {max(probabilities[0]):.2f}")
 - Transformers (Hugging Face)
 - pandas
 - numpy
+- matplotlib
+- seaborn

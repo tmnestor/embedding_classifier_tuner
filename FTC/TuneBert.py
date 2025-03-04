@@ -1,43 +1,67 @@
+#!/usr/bin/env python3
+# Standard library imports
 import os
 import sys
+import argparse
+import datetime
+from pathlib import Path
 
-# Add the current directory to the path to allow importing local modules
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Add the parent directory (project root) to sys.path to ensure imports work
+sys.path.insert(0, str(Path(__file__).parent.parent.absolute()))
 
-# Import the logging utility
-from utils.logging_utils import tee_to_file
-
-# Start capturing output to log file
-log_file = tee_to_file("TuneBert")
-
-import torch
+# Third-party imports
+import yaml
 import optuna
 import torch.nn as nn
 import torch.optim as optim
-import yaml
 
-from utils.LoaderSetup import join_constructor
-
-# Register the YAML constructor before importing shared which uses it
-yaml.add_constructor("!join", join_constructor, Loader=yaml.SafeLoader)
-
-from utils.shared import (
+# Local imports
+from FTC_utils.logging_utils import tee_to_file
+from FTC_utils.LoaderSetup import join_constructor, env_var_or_default_constructor
+from FTC_utils.env_utils import check_environment
+from FTC_utils.device_utils import get_device
+from FTC_utils.shared import (
     load_embedding_data,
     validate,
     STUDY_NAME,
     BEST_CONFIG_DIR,
+    TRAIN_CSV,
+    VAL_CSV,
+    TEST_CSV,
 )
 
-# Import the get_device function from our utility module
-from utils.device_utils import get_device
+# Start capturing output to log file
+log_file = tee_to_file("TuneBert")
 
-# Constants
-NUM_TRIALS = 20  # Number of hyperparameter combinations to try
-EPOCHS = 5  # Number of epochs for each trial (keep low for faster experimentation)
+# Register YAML constructors
+yaml.add_constructor("!join", join_constructor, Loader=yaml.SafeLoader)
+yaml.add_constructor(
+    "!env_var_or_default", env_var_or_default_constructor, Loader=yaml.SafeLoader
+)
+
+# Check environment and create necessary directories
+check_environment()
+
+# Default constants (can be overridden by CLI arguments)
+DEFAULT_NUM_TRIALS = 20  # Default number of hyperparameter combinations to try
+DEFAULT_EPOCHS = (
+    5  # Default number of epochs for each trial (keep low for faster experimentation)
+)
 
 
 # Updated DenseBlock with additional activations.
 class DenseBlock(nn.Module):
+    """A neural network block combining linear layer, batch normalization, activation, and dropout.
+
+    This block implements a standard dense layer with normalization and regularization.
+
+    Args:
+        input_size (int): The dimensionality of the input features
+        output_size (int): The dimensionality of the output features
+        dropout_rate (float): The probability of zeroing a neuron during dropout
+        activation_fn (str, optional): The name of the activation function to use
+    """
+
     def __init__(self, input_size, output_size, dropout_rate, activation_fn=None):
         super(DenseBlock, self).__init__()
         activation = self._get_activation(activation_fn)
@@ -72,11 +96,30 @@ class DenseBlock(nn.Module):
         return activations[name_lower]
 
     def forward(self, x):
+        """Forward pass through the dense block.
+
+        Args:
+            x (torch.Tensor): Input tensor
+
+        Returns:
+            torch.Tensor: Output after applying linear layer, batch norm, activation, and dropout
+        """
         return self.block(x)
 
 
 # Tunable classifier architecture using a variable number of DenseBlock layers.
 class TunableFFModel(nn.Module):
+    """A flexible feed-forward model with tunable architecture designed for Optuna optimization.
+
+    This model creates a variable depth neural network based on parameters suggested by an Optuna trial.
+    The network consists of multiple DenseBlock layers and a final linear output layer.
+
+    Args:
+        input_dim (int): Dimensionality of the input features
+        output_dim (int): Number of output classes
+        trial (optuna.Trial): Optuna trial object that suggests hyperparameters
+    """
+
     def __init__(self, input_dim, output_dim, trial):
         super(TunableFFModel, self).__init__()
         # Now include additional activation options.
@@ -98,9 +141,22 @@ class TunableFFModel(nn.Module):
         self.initialize_weights()
 
     def forward(self, x):
+        """Forward pass through the feed-forward model.
+
+        Args:
+            x (torch.Tensor): Input tensor containing embeddings
+
+        Returns:
+            torch.Tensor: Model output logits
+        """
         return self.model(x)
 
     def initialize_weights(self):
+        """Initialize model weights using Xavier uniform initialization.
+
+        Applies Xavier uniform initialization to all linear layers in the model
+        and zeros to all bias terms.
+        """
         for m in self.modules():
             if isinstance(m, nn.Linear):
                 nn.init.xavier_uniform_(m.weight)
@@ -110,20 +166,52 @@ class TunableFFModel(nn.Module):
 
 # BERT classifier that uses the tunable FFModel as its classifier.
 class BERTClassifierTuned(nn.Module):
+    """A model that uses pre-computed BERT embeddings as input to a tunable classifier.
+
+    This model takes pre-computed embeddings as input rather than raw text,
+    making it more efficient for hyperparameter tuning.
+
+    Args:
+        classifier (nn.Module): The classification model to process embeddings
+    """
+
     def __init__(self, classifier):
         super(BERTClassifierTuned, self).__init__()
         self.classifier = classifier
 
     def forward(self, inputs):
+        """Forward pass for the BERT classifier.
+
+        Args:
+            inputs (torch.Tensor): Tensor of embedding vectors
+
+        Returns:
+            torch.Tensor: Output logits from the classifier
+        """
         # Inputs are already embeddings
         return self.classifier(inputs)
 
 
-def objective(trial, device):
-    """Objective function for Optuna optimization"""
+def objective(trial, device, epochs=None, total_trials=None, large_dataset=False):
+    """Objective function for Optuna optimization
+
+    Args:
+        trial: Optuna trial object
+        device: Device to use for computation
+        epochs: Number of epochs to train for (overrides default)
+        total_trials: Total number of trials for display purposes
+        large_dataset: Whether to use chunked loading for large datasets
+    """
+    # Use default values if not provided
+    if epochs is None:
+        epochs = DEFAULT_EPOCHS
+    if total_trials is None:
+        total_trials = DEFAULT_NUM_TRIALS
+
     # Load embedding data - will regenerate if needed
-    train_loader, val_loader, test_loader, label_encoder, num_label = (
-        load_embedding_data(device)
+    # Note: load_test=False to avoid unnecessary data loading and computation
+    train_loader, val_loader, _, _, num_label = load_embedding_data(
+        device, load_test=False, large_dataset=large_dataset, verbose=False
     )
 
     # Get input dimension from data and num classes
@@ -169,11 +257,12 @@ def objective(trial, device):
 
     criterion = nn.CrossEntropyLoss()
 
-    n_epochs = EPOCHS
+    # We've already set n_epochs at the beginning of the function
+    n_epochs = epochs
     best_val_acc = 0
 
     # Print trial information with 1-based indexing
-    print(f"Trial {trial.number + 1}/{NUM_TRIALS}: Testing hyperparameters...")
+    print(f"Trial {trial.number + 1}/{total_trials}: Testing hyperparameters...")
 
     for epoch in range(n_epochs):
         # Training phase
@@ -198,37 +287,162 @@ def objective(trial, device):
 
     # Print the final result with 1-based indexing
     print(
-        f"Trial {trial.number + 1}/{NUM_TRIALS}: Complete - Best validation accuracy: {best_val_acc:.4f}"
+        f"Trial {trial.number + 1}/{total_trials}: Complete - This trial's best accuracy: {best_val_acc:.4f}"
     )
 
     return best_val_acc
 
 
+def get_arg_parser():
+    """Create and return an argument parser for TuneBert.py"""
+    parser = argparse.ArgumentParser(
+        description="Optimize classifier architecture using Optuna"
+    )
+    parser.add_argument(
+        "--trials",
+        type=int,
+        default=DEFAULT_NUM_TRIALS,
+        help=f"Number of Optuna trials to run (default: {DEFAULT_NUM_TRIALS})",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=DEFAULT_EPOCHS,
+        help=f"Number of epochs per trial (default: {DEFAULT_EPOCHS})",
+    )
+    parser.add_argument(
+        "--study-name",
+        type=str,
+        default=STUDY_NAME,
+        help=f"Name of the Optuna study (default: {STUDY_NAME})",
+    )
+    parser.add_argument(
+        "--pruning",
+        action="store_true",
+        help="Enable pruning of unpromising trials (early stopping)",
+    )
+    parser.add_argument(
+        "--large-dataset",
+        action="store_true",
+        help="Use chunked loading for large datasets to reduce memory usage",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Override the output directory for saving the best configuration",
+    )
+    return parser
+
+
 def main():
-    """Main entry point for hyperparameter tuning"""
+    """Main entry point for hyperparameter tuning.
+
+    This function:
+    1. Parses command line arguments
+    2. Sets up the device (CPU/GPU)
+    3. Creates an Optuna study to optimize hyperparameters
+    4. Runs multiple trials with different hyperparameter configurations
+    5. Saves the best configuration to a YAML file
+
+    Returns:
+        optuna.Study: The completed Optuna study object, or None if an error occurred
+    """
+    # Parse command line arguments
+    parser = get_arg_parser()
+    args = parser.parse_args()
+
+    # Set variables from arguments
+    num_trials = args.trials
+    epochs_per_trial = args.epochs
+    study_name = args.study_name
+    large_dataset = args.large_dataset
+
     # Initialize device and create directories
     device = get_device()  # Use the imported function
     print(f"Using device: {device}")
-    os.makedirs(BEST_CONFIG_DIR, exist_ok=True)
+
+    # Set output directory
+    if args.output_dir:
+        output_dir = args.output_dir
+        os.makedirs(output_dir, exist_ok=True)
+    else:
+        os.makedirs(BEST_CONFIG_DIR, exist_ok=True)
+        output_dir = BEST_CONFIG_DIR
+
+    # Check if TripletTraining.py has been run first to prevent data leakage
+    if not all(os.path.exists(path) for path in [TRAIN_CSV, VAL_CSV, TEST_CSV]):
+        print("ERROR: Data splits not found. Please run TripletTraining.py first.")
+        print(
+            "This is required to prevent data leakage between embedding training and tuning."
+        )
+        print("Run: python FTC/TripletTraining.py --epochs 10 --lr 2e-5")
+        sys.exit(1)
 
     print("Starting hyperparameter tuning...")
-    print(f"Will run {NUM_TRIALS} trials using device: {device}")
+    print(f"Will run {num_trials} trials using device: {device}")
+    print(f"Using {epochs_per_trial} epochs per trial")
+    print(
+        "Using consistent train/val/test splits from TripletTraining.py to prevent data leakage."
+    )
+    print("Note: Test data is intentionally not loaded for hyperparameter tuning")
+    print("This saves computation and prevents overfitting to the test set")
 
     try:
         # Create and run the study
-        study = optuna.create_study(direction="maximize", study_name=STUDY_NAME)
-        study.optimize(lambda trial: objective(trial, device), n_trials=NUM_TRIALS)
+        study = optuna.create_study(direction="maximize", study_name=study_name)
+
+        # Track the global best accuracy across all trials
+        global_best_accuracy = 0.0
+
+        # Define objective function with all necessary parameters
+        def trial_objective(trial):
+            """Objective function for an individual Optuna trial.
+
+            Args:
+                trial (optuna.Trial): The Optuna trial object
+
+            Returns:
+                float: The validation accuracy achieved by the model with the trial's hyperparameters
+            """
+            nonlocal global_best_accuracy
+            trial_accuracy = objective(
+                trial,
+                device=device,
+                epochs=epochs_per_trial,
+                total_trials=num_trials,
+                large_dataset=large_dataset,
+            )
+
+            # Update and display the global best accuracy
+            if trial_accuracy > global_best_accuracy:
+                global_best_accuracy = trial_accuracy
+                print(
+                    f"New best accuracy across all trials: {global_best_accuracy:.4f}"
+                )
+
+            return trial_accuracy
+
+        # Run optimization with the specified number of trials
+        study.optimize(trial_objective, n_trials=num_trials)
 
         # Print and save results
-        print("\nBest trial:")
+        print("\n" + "=" * 50)
+        print("HYPERPARAMETER OPTIMIZATION COMPLETED")
+        print("=" * 50)
+        print(f"Best trial: #{study.best_trial.number + 1}")
         trial = study.best_trial
-        print(f"Validation Accuracy: {trial.value:.4f}")
-        print("Best hyperparameters: ")
+        print(f"Global best validation accuracy: {trial.value:.4f}")
+
+        print("\nBest hyperparameters: ")
         for key, value in trial.params.items():
             print(f"    {key}: {value}")
 
         # Get the first dataloader batch to determine input dimension and output dimension
-        train_loader, _, _, label_encoder, num_classes = load_embedding_data(device)
+        # Still don't need test data here
+        train_loader, _, _, _, num_classes = load_embedding_data(
+            device, load_test=False, verbose=False
+        )
         sample_batch, _ = next(iter(train_loader))
         input_dim = sample_batch.shape[1]
 
@@ -238,7 +452,7 @@ def main():
             "model_type": "sequential",  # Explicitly store the model type
             "model_version": "1.0",  # Version tracking for backward compatibility
             "creation_timestamp": datetime.datetime.now().isoformat(),
-            "study_name": STUDY_NAME,
+            "study_name": study_name,
             "validation_accuracy": float(trial.value),
             # Copy all hyperparameters from the trial
             **trial.params,
@@ -312,10 +526,8 @@ def main():
                 arch_str.encode()
             ).hexdigest()
 
-        # Save the complete configuration to a YAML file
-        best_config_file = os.path.join(
-            BEST_CONFIG_DIR, f"best_config_{STUDY_NAME}.yml"
-        )
+        # Save the complete configuration to a YAML file using pathlib for safe path handling
+        best_config_file = str(Path(output_dir) / f"best_config_{study_name}.yml")
 
         with open(best_config_file, "w", encoding="utf-8") as f:
             yaml.dump(complete_config, f, default_flow_style=False, sort_keys=False)
@@ -329,7 +541,7 @@ def main():
                 print(f"  {key}: {complete_config[key]}")
 
         print(f"  Architecture: {len(complete_config.get('architecture', []))} layers")
-        print(f"  Layer dimensions:", end=" ")
+        print("  Layer dimensions:", end=" ")
         for i in range(complete_config.get("n_hidden", 0)):
             width_key = f"hidden_units_{i}"
             if width_key in complete_config:
@@ -346,9 +558,6 @@ def main():
         print(f"\nExecution log with error details saved to: {log_file}")
         return None
 
-
-# Add the import needed for timestamp
-import datetime
 
 if __name__ == "__main__":
     main()

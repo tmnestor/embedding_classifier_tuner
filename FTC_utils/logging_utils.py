@@ -9,32 +9,59 @@ import datetime
 import yaml
 from typing import Optional
 from contextlib import contextmanager
+from pathlib import Path
+
+# Import path handling utilities
+try:
+    from utils.LoaderSetup import join_constructor, env_var_or_default_constructor
+    
+    # Register YAML constructors
+    yaml.add_constructor("!join", join_constructor, Loader=yaml.SafeLoader)
+    yaml.add_constructor("!env_var_or_default", env_var_or_default_constructor, Loader=yaml.SafeLoader)
+except ImportError:
+    # Fallback when imported early in initialization
+    pass
 
 # Load configuration to get BASE_ROOT path
-with open("config.yml", "r", encoding="utf-8") as f:
-    config = yaml.safe_load(f)
-    BASE_ROOT = config.get("BASE_ROOT", "./outputs")
+try:
+    # First try to find config.yml in the current directory
+    if os.path.exists("config.yml"):
+        config_path = "config.yml"
+    else:
+        # Try to find config.yml in the parent directory
+        parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        config_path = os.path.join(parent_dir, "config.yml")
+        
+    # Load the configuration file
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+        BASE_ROOT = config.get("BASE_ROOT", "./outputs")
+except FileNotFoundError:
+    # Fallback if config.yml cannot be found
+    print("Warning: config.yml not found. Using default output directory.")
+    BASE_ROOT = "./outputs"
 
-# Create logs directory within BASE_ROOT
-LOGS_DIR = os.path.join(BASE_ROOT, "logs")
-os.makedirs(LOGS_DIR, exist_ok=True)
+# Create logs directory within BASE_ROOT using pathlib for safe path handling
+LOGS_DIR = Path(BASE_ROOT) / "logs"
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 class TeeLogger:
     """Logger that writes to both console and file simultaneously."""
 
-    def __init__(self, filename: str, mode: str = "a", log_dir: str = LOGS_DIR):
+    def __init__(self, filename: str, mode: str = "a", log_dir = LOGS_DIR):
         """Initialize the TeeLogger.
 
         Args:
             filename (str): Base name of the log file
             mode (str): File opening mode ('a' for append, 'w' for write)
-            log_dir (str): Directory to store log files
+            log_dir: Directory to store log files (Path or str)
         """
         self.terminal = sys.stdout
 
-        # Create directory if it doesn't exist
-        os.makedirs(log_dir, exist_ok=True)
+        # Convert log_dir to Path object and create directory if it doesn't exist
+        log_dir_path = Path(log_dir)
+        log_dir_path.mkdir(parents=True, exist_ok=True)
 
         # Add timestamp to filename to avoid overwriting previous logs
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -44,8 +71,8 @@ class TeeLogger:
             c if c.isalnum() or c in "._-" else "_" for c in filename
         )
 
-        # Create full log path with timestamp
-        log_path = os.path.join(log_dir, f"{clean_filename}_{timestamp}.log")
+        # Create full log path with timestamp using pathlib for safe path handling
+        log_path = str(log_dir_path / f"{clean_filename}_{timestamp}.log")
 
         self.log_file = open(log_path, mode, buffering=1, encoding="utf-8")
         self.filename = log_path

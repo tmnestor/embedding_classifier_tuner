@@ -1,17 +1,24 @@
-BASE_ROOT: &BASE_ROOT "/users/tod/bert_outputs"
+# Use environment variable with fallback default path
+BASE_ROOT: &BASE_ROOT !env_var_or_default [FTC_OUTPUT_PATH, "/Users/tod/bert_outputs"]
+# BASE_ROOT: &BASE_ROOT !env_var_or_default [FTC_OUTPUT_PATH, "/efs/shared/data/rentals_freetext_extraction/bert_outputs"]
 
+# Define all directory paths first
 DATA_ROOT: &DATA_ROOT !join [ *BASE_ROOT, "/data" ]
 CKPT_ROOT: &CKPT_ROOT !join [ *BASE_ROOT, "/checkpoints" ]
 BEST_CONFIG_DIR: !join [ *BASE_ROOT, "/config" ]
 LEARNING_CURVES_DIR: !join [ *BASE_ROOT, "/evaluation" ]
+CALIBRATION_DIR: &CALIBRATION_DIR !join [ *BASE_ROOT, "/calibration" ]
 
 base: &base
   SEED: 42
   NUM_EPOCHS: 10
   BATCH_SIZE: 64
   MAX_SEQ_LEN: 64
-  MODEL: "all-mpnet-base-v2"
-  MODEL_NAME: "all-mpnet-base-v2"
+  # MAX_SEQ_LEN: 16
+  # MODEL: "all-mpnet-base-v2"
+  # MODEL_NAME: "all-mpnet-base-v2"
+  MODEL: "paraphrase-MiniLM-L6-v2"
+  MODEL_NAME: "paraphrase-MiniLM-L6-v2"
   DROP_OUT: 0.3
   ACT_FN: "silu"
   LEARNING_RATE: 2e-5
@@ -22,12 +29,14 @@ base: &base
 
 paths: &paths
   CSV_PATH: !join [ *DATA_ROOT, "/ecommerce.csv" ]
+  # CSV_PATH: !join [ *DATA_ROOT, "/test_data_labelled_100.csv" ]
   TRAIN_CSV: !join [ *DATA_ROOT, "/train.csv" ]
   VAL_CSV: !join [ *DATA_ROOT, "/val.csv" ]
   TEST_CSV: !join [ *DATA_ROOT, "/test.csv" ]
   CHECKPOINT_DIR: *CKPT_ROOT
   EMBEDDING_PATH: !join [ *CKPT_ROOT, "/triplet_model.pt" ]
   DATA_PATH: *DATA_ROOT
+  CALIBRATION_PATH: !join [ *CALIBRATION_DIR, "/calibration_scores.npy" ]
 
 <<: *base
 <<: *paths

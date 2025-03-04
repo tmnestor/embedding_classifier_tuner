@@ -32,8 +32,9 @@ text,labels
 Create or modify `config.yml` to point to your data:
 
 ```yaml
-BASE_ROOT: "/path/to/outputs"  # Where to store models and results
-DATA_ROOT: !join [ *BASE_ROOT, "/data" ]
+# Set using FTC_OUTPUT_PATH environment variable or default location
+BASE_ROOT: &BASE_ROOT !env_var_or_default [FTC_OUTPUT_PATH, "/path/to/outputs"]
+DATA_ROOT: &DATA_ROOT !join [ *BASE_ROOT, "/data" ]
 CSV_PATH: "/path/to/your/dataset.csv"  # Your input data
 MODEL: "all-mpnet-base-v2"  # Base transformer model
 ```
@@ -48,7 +49,7 @@ CHECKPOINT_DIR: !join [ *BASE_ROOT, "/checkpoints" ]
 Run the triplet training to create better text embeddings:
 
 ```bash
-python TripletTraining.py --epochs 10
+python FTC/TripletTraining.py --epochs 10
 ```
 
 This creates a transformer model that maps similar texts closer together in the embedding space, improving classification performance. The model is saved to:
@@ -70,7 +71,7 @@ Triplet model saved.
 Find the optimal classifier architecture and hyperparameters:
 
 ```bash
-python TuneBert.py
+python FTC/TuneBert.py
 ```
 
 This uses Optuna to search for the best classifier configuration, balancing model complexity with performance. Results are saved to:
@@ -99,7 +100,7 @@ Best hyperparameters:
 Train the final classifier using the optimized architecture:
 
 ```bash
-python BertClassification.py
+python FTC/BertClassification.py
 ```
 
 This creates embeddings for your text data (stored as CSVs) and trains a classifier with early stopping and learning rate scheduling. The trained model is saved to:
@@ -125,7 +126,7 @@ Test Performance:
 Evaluate model performance using cross-validation:
 
 ```bash
-python Evaluation.py --folds 5 --epochs 10
+python FTC/Evaluation.py --folds 5 --epochs 10
 ```
 
 This tests the model on different data splits to ensure robustness and identifies potential weaknesses. Results are saved to:
@@ -149,7 +150,7 @@ Recall (macro): 0.9408 ± 0.0093
 Make predictions on new data:
 
 ```bash
-python Predict.py
+python FTC/Predict.py
 ```
 
 This adds predictions to your test file in a new column called `predicted_label`.
@@ -160,22 +161,22 @@ Most scripts support additional arguments to customize their behavior:
 
 ### TripletTraining.py
 ```bash
-python TripletTraining.py --epochs 5 --lr 1e-5
+python FTC/TripletTraining.py --epochs 5 --lr 1e-5
 ```
 
 ### TuneBert.py
 ```bash
-python TuneBert.py --trials 30
+python FTC/TuneBert.py --trials 30
 ```
 
 ### Evaluation.py
 ```bash
-python Evaluation.py --folds 3 --epochs 5 --bigrams
+python FTC/Evaluation.py --folds 3 --epochs 5 --ngrams bi
 ```
 
 ### Predict.py
 ```bash
-python Predict.py --input /path/to/data.csv --output /path/to/results.csv
+python FTC/Predict.py --input /path/to/data.csv --output /path/to/results.csv
 ```
 
 ## Abbreviated Workflow
@@ -188,13 +189,13 @@ cp config.template.yml config.yml
 # Edit config.yml to point to your data
 
 # Step 2: Train embeddings with fewer epochs
-python TripletTraining.py --epochs 5
+python FTC/TripletTraining.py --epochs 5
 
 # Step 3: Skip tuning, use default architecture
-python BertClassification.py
+python FTC/BertClassification.py
 
 # Step 4: Quick evaluation
-python Evaluation.py --folds 3 --epochs 5
+python FTC/Evaluation.py --folds 3 --epochs 5
 ```
 
 This streamlined approach can complete in under an hour on modern hardware.
@@ -213,16 +214,24 @@ BATCH_SIZE: 16  # Try lower values if needed
 1. Ensure class balance in your dataset
 2. Try longer training for the triplet model:
    ```bash
-   python TripletTraining.py --epochs 20
+   python FTC/TripletTraining.py --epochs 20
    ```
 3. Increase samples per class (aim for 100+ examples)
 
 ### Slow Training
 
 1. Enable GPU/MPS acceleration
-2. Pre-compute embeddings once and reuse them:
+2. Set an environment variable for output paths:
    ```bash
-   python BertClassification.py  # First run creates embeddings
+   export FTC_OUTPUT_PATH="/your/desired/output/path"
+   ```
+3. Use batched processing for large datasets:
+   ```bash
+   python FTC/BertClassification.py --large-dataset --chunk-size 5000
+   ```
+4. Optimize memory usage with gradient accumulation:
+   ```bash
+   python FTC/TripletTraining.py --batch-size 16 --gradient-accumulation 4
    ```
 
 ## Next Steps
