@@ -1,8 +1,9 @@
-# BERT Embedding Classifier Tuner
+# Free Text Categoriser
 
 ## Purpose
 
-This project provides a streamlined framework for training and fine-tuning a BERT-based text classifier, combining embedding learning with optimized classification. It's designed to be modular and easy to use, following a pipeline approach:
+This project provides an extensible and reusable framework for training and fine-tuning a BERT-based text classifier, combining embedding learning with optimized classification. 
+It's designed to be modular and easy to use, following a pipeline approach:
 
 1. Train BERT embeddings using triplet loss for better text representation
 2. Generate text embeddings on-the-fly to prevent data leakage
@@ -13,19 +14,64 @@ This project provides a streamlined framework for training and fine-tuning a BER
 
 ## Project Structure
 
+```
+App
+├── PreTrainedEncoderModel
+├── FTC
+│   ├── BertClassification.py
+│   ├── Evaluation.py
+│   ├── Predict.py
+│   ├── TripletTraining.py
+│   ├── TuneBert.py
+│   └── __init__.py
+├── FTC_utils
+│   ├── ConfigReader.py
+│   ├── LoaderSetup.py
+│   ├── config_utils.py
+│   ├── conformal.py
+│   ├── device_utils.py
+│   ├── env_utils.py
+│   ├── file_utils.py
+│   ├── logging_utils.py
+│   ├── shared.py
+│   ├── utils.py
+│   └── __init__.py
+└── config.yml
+
+BASE_ROOT
+├── calibration
+│   └── calibration_scores.npy
+├── checkpoints
+│   ├── model
+│   │   └── best_model.pt
+│   ├── training_metrics.npy
+│   └── triplet_model.pt
+├── config
+│   └── best_config_bert_opt.yml
+├── data
+│   ├── development_data.csv
+│   ├── test_predictions.csv
+│   └── testing_data.csv
+├── evaluation
+│   ├── confusion_matrix.png
+│   ├── cv_metrics.csv
+│   ├── learning_curves.png
+│   ├── triplet_embeddings_visualization_20250303_175857.png
+│   └── wordclouds
+│       ├── wordcloud_Books_unigrams.png
+│       ├── wordcloud_Clothing_&_Accessories_unigrams.png
+│       ├── wordcloud_Electronics_unigrams.png
+│       └── wordcloud_Household_unigrams.png
+└── logs
+
+```
+
 - `FTC/`: Core package containing the main modules
   - `BertClassification.py`: Core module for classifier training, embedding generation, and model evaluation
   - `TripletTraining.py`: Trains embeddings using triplet loss to create better text representations
   - `TuneBert.py`: Performs hyperparameter optimization using Optuna to find the best classifier architecture
   - `Evaluation.py`: Conducts robust model evaluation through cross-validation and detailed metrics analysis
   - `Predict.py`: Applies the trained model to make predictions on new text data
-- Root directory wrapper scripts (for backwards compatibility):
-  - `BertClassification.py`: Wrapper for FTC.BertClassification
-  - `TripletTraining.py`: Wrapper for FTC.TripletTraining
-  - `TuneBert.py`: Wrapper for FTC.TuneBert
-  - `Evaluation.py`: Wrapper for FTC.Evaluation
-  - `Predict.py`: Wrapper for FTC.Predict
-- `config.yml`: Central configuration file that controls all aspects of the pipeline
 - `FTC_utils/`: Utility modules supporting the main functionality
   - `shared.py`: Shared functions used across multiple scripts
   - `utils.py`: General utility functions for text processing
@@ -36,6 +82,7 @@ This project provides a streamlined framework for training and fine-tuning a BER
   - `config_utils.py`: Standardized configuration handling
   - `env_utils.py`: Environment checking and directory creation
   - `file_utils.py`: File operations and path management
+- `config.yml`: Central configuration file that controls all aspects of the pipeline
 
 ## Data Pipeline
 
@@ -90,7 +137,7 @@ The trained triplet model is used to generate embeddings on-the-fly for each dat
 
 ## Requirements
 
-- Python 3.7+
+- Python 3.10+
 - PyTorch
 - Transformers (Hugging Face)
 - Optuna
@@ -102,18 +149,6 @@ The trained triplet model is used to generate embeddings on-the-fly for each dat
 - PyYAML
 - wordcloud
 - tqdm
-- SHAP
-- LIME
-
-```bash
-pip install -r requirements.txt
-```
-
-Or install the core dependencies manually:
-
-```bash
-pip install torch transformers optuna scikit-learn pandas numpy matplotlib seaborn pyyaml tqdm wordcloud shap lime
-```
 
 ## Configuration System
 
@@ -142,11 +177,6 @@ Before running any scripts, set the environment variable to specify your output 
 # Linux/macOS
 export FTC_OUTPUT_PATH="/path/to/your/output/directory"
 
-# Windows (Command Prompt)
-set FTC_OUTPUT_PATH=C:\path\to\your\output\directory
-
-# Windows (PowerShell)
-$env:FTC_OUTPUT_PATH="C:\path\to\your\output\directory"
 ```
 
 If not set, the system will use the default path `/default/path/bert_outputs` and display a warning.
@@ -170,26 +200,26 @@ The configuration is organized into logical sections using YAML anchors and refe
 
 ```yaml
 base: &base
-  SEED: 42                         # Random seed for reproducibility
-  NUM_EPOCHS: 10                   # Number of training epochs
-  BATCH_SIZE: 64                   # Batch size for training
-  MAX_SEQ_LEN: 64                  # Maximum sequence length for tokenization
-  MODEL: "all-mpnet-base-v2"       # Base transformer model
-  MODEL_NAME: "all-mpnet-base-v2"  # Name used for loading the model
-  DROP_OUT: 0.3                    # Dropout rate for classifier
-  ACT_FN: "silu"                   # Activation function (silu, gelu, relu, etc.)
-  LEARNING_RATE: 2e-5              # Base learning rate
-  PATIENCE: 10                     # Early stopping patience (epochs)
-  LR_PATIENCE: 5                   # Learning rate reduction patience
-  MIN_LR: 1e-6                     # Minimum learning rate
-  STUDY_NAME: "bert_opt"           # Name for hyperparameter optimization study
+  SEED: 42                                # Random seed for reproducibility
+  NUM_EPOCHS: 10                          # Number of training epochs
+  BATCH_SIZE: 64                          # Batch size for training
+  MAX_SEQ_LEN: 64                         # Maximum sequence length for tokenization
+  MODEL_PATH: "./all-mpnet-base-v2"       # Base transformer model
+  MODEL_NAME: "all-mpnet-base-v2"         # Name used for loading the model
+  DROP_OUT: 0.3                           # Dropout rate for classifier
+  ACT_FN: "silu"                          # Activation function (silu, gelu, relu, etc.)
+  LEARNING_RATE: 2e-5                     # Base learning rate
+  PATIENCE: 10                            # Early stopping patience (epochs)
+  LR_PATIENCE: 5                          # Learning rate reduction patience
+  MIN_LR: 1e-6                            # Minimum learning rate
+  STUDY_NAME: "bert_opt"                  # Name for hyperparameter optimization study
 ```
 
 #### File Paths
 
 ```yaml
 paths: &paths
-  CSV_PATH: !join [ *DATA_ROOT, "/ecommerce.csv" ]           # Main dataset
+  CSV_PATH: !join [ *DATA_ROOT, "/development_data.csv" ]           # Main dataset
   TRAIN_CSV: !join [ *DATA_ROOT, "/train.csv" ]              # Training set with embeddings
   VAL_CSV: !join [ *DATA_ROOT, "/val.csv" ]                  # Validation set with embeddings
   TEST_CSV: !join [ *DATA_ROOT, "/test.csv" ]                # Test set with embeddings
@@ -414,8 +444,7 @@ All modules include:
 Possible future extensions for this project include:
 
 - Adding a test suite for the prediction and evaluation functionality
-- Supporting more transformer model architectures
 - Implementing additional evaluation metrics and visualizations
 - Creating a web UI for interactive model exploration
-- Enhancing the current model explainability features with additional methods
+- Adding Model Explainability features
 - Adding visual dashboards for browsing and comparing explanations
