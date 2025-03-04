@@ -15,13 +15,11 @@ base: &base
   BATCH_SIZE: 64
   MAX_SEQ_LEN: 64
   # MAX_SEQ_LEN: 16
-  # Use MODEL_NAME consistently throughout the codebase
   MODEL_NAME: "all-mpnet-base-v2"
-  # Explicitly define the model path for consistent loading
   MODEL_PATH: "./all-mpnet-base-v2"
-
-  # MODEL: "paraphrase-MiniLM-L6-v2"
   # MODEL_NAME: "paraphrase-MiniLM-L6-v2"
+  # MODEL_PATH: "./paraphrase-MiniLM-L6-v2"
+
   DROP_OUT: 0.3
   ACT_FN: "silu"
   LEARNING_RATE: 2e-5
