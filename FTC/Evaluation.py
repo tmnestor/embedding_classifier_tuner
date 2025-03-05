@@ -746,18 +746,38 @@ def plot_classification_report(report: Dict, output_path: str = "classification_
     # Convert to DataFrame for heatmap
     df = pd.DataFrame(metrics_data).T
     
+    # Calculate color scale based on data range
+    # For high performance models (>0.9), adapt the scale
+    min_value = df.values.min()
+    
+    # Dynamically adjust vmin to create better color differentiation for high scores
+    if min_value > 0.9:
+        vmin = max(0.8, min_value - 0.15)  # Scale starts at 0.8 or 15 percentage points below min
+    elif min_value > 0.8:
+        vmin = max(0.7, min_value - 0.2)   # Scale starts at 0.7 or 20 percentage points below min
+    else:
+        vmin = 0.0  # Standard scale
+    
+    # Create custom colormap for high-performance metrics
+    # Use viridis_r which has better differentiation at the high end
     # Create heatmap
     plt.figure(figsize=(10, 8))
     sns.heatmap(
         df,
         annot=True,
         fmt=".3f",
-        cmap="YlGnBu",
-        vmin=0.0,
+        cmap="viridis_r",  # Better differentiation at high values than YlGnBu
+        vmin=vmin,
         vmax=1.0,
         linewidths=0.5
     )
     plt.title("Classification Report Heatmap")
+    
+    # Add note about adjusted scale if using non-standard scale
+    if vmin > 0.0:
+        plt.figtext(0.5, 0.01, f"Note: Color scale adjusted to range [{vmin:.1f}, 1.0] for better visualization", 
+                   ha="center", fontsize=9, bbox={"facecolor":"white", "alpha":0.5, "pad":5})
+        
     plt.tight_layout()
     plt.savefig(output_path)
     plt.close()
