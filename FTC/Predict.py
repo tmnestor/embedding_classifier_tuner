@@ -126,8 +126,13 @@ def load_model():
 
     device = get_device()
 
-    # Load tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(config["MODEL"])
+    # Load tokenizer from MODEL_PATH or MODEL_NAME
+    if "MODEL_PATH" in config:
+        print(f"Loading tokenizer from MODEL_PATH: {config['MODEL_PATH']}")
+        tokenizer = AutoTokenizer.from_pretrained(config["MODEL_PATH"], local_files_only=True)
+    else:
+        print(f"Loading tokenizer from MODEL_NAME: {config['MODEL_NAME']}")
+        tokenizer = AutoTokenizer.from_pretrained(config["MODEL_NAME"])
 
     # Load triplet model
     triplet_model = load_triplet_model(device)
@@ -154,7 +159,11 @@ def load_model():
 
     # Load weights
     checkpoint_path = os.path.join(config["CHECKPOINT_DIR"], "model", "best_model.pt")
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    # Load checkpoint with warning suppression for weights_only
+    import warnings
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=FutureWarning, message=".*weights_only.*")
+        checkpoint = torch.load(checkpoint_path, map_location=device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
@@ -577,8 +586,13 @@ def main():
         OUTPUT_FILE = str(input_path.parent / f"{input_path.stem}_predictions.csv")
     OUTPUT_FILE = str(Path(OUTPUT_FILE).resolve())
 
-    # Load tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(config["MODEL"])
+    # Load tokenizer from MODEL_PATH or MODEL_NAME
+    if "MODEL_PATH" in config:
+        print(f"Loading tokenizer from MODEL_PATH: {config['MODEL_PATH']}")
+        tokenizer = AutoTokenizer.from_pretrained(config["MODEL_PATH"], local_files_only=True)
+    else:
+        print(f"Loading tokenizer from MODEL_NAME: {config['MODEL_NAME']}")
+        tokenizer = AutoTokenizer.from_pretrained(config["MODEL_NAME"])
 
     # Load triplet model with proper error handling
     try:
@@ -701,7 +715,11 @@ def main():
 
         print(f"Loading model weights from {checkpoint_path}")
         try:
-            checkpoint = torch.load(checkpoint_path, map_location=device)
+            # Load with warning suppression for weights_only
+            import warnings
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=FutureWarning, message=".*weights_only.*")
+                checkpoint = torch.load(checkpoint_path, map_location=device)
 
             try:
                 if "model_state_dict" in checkpoint:

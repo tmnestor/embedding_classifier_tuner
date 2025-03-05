@@ -108,9 +108,12 @@ def load_triplet_model(device):
         print(f"ERROR loading model: {type(e).__name__}: {e}")
         raise
     
-    # Load the saved checkpoint
+    # Load the saved checkpoint with warning suppression for weights_only
     try:
-        checkpoint = torch.load(model_path, map_location=device)
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning, message=".*weights_only.*")
+            checkpoint = torch.load(model_path, map_location=device)
         
         # Print checkpoint keys to help debug
         print(f"Checkpoint contains keys: {list(checkpoint.keys()) if isinstance(checkpoint, dict) else 'not a dict'}")

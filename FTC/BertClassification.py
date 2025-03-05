@@ -187,22 +187,39 @@ def load_csv_data(device, tokenizer):
     return train_loader, val_loader, test_loader, label_encoder, num_classes
 
 
-def save_checkpoint(model, optimizer, epoch, val_acc, best_val_acc, filename):
+def save_checkpoint(model, optimizer, epoch, val_acc, best_val_acc, val_f1, best_val_f1, filename):
     checkpoint = {
         "epoch": epoch,
         "model_state_dict": model.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "val_acc": val_acc,
         "best_val_acc": best_val_acc,
+        "val_f1": val_f1,
+        "best_val_f1": best_val_f1,
     }
     torch.save(checkpoint, filename)
 
 
 def load_checkpoint(filename, model, optimizer):
-    checkpoint = torch.load(filename)
+    # Load checkpoint with warning suppression for weights_only
+    import warnings
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=FutureWarning, message=".*weights_only.*")
+        checkpoint = torch.load(filename)
+    
     model.load_state_dict(checkpoint["model_state_dict"])
     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-    return checkpoint["epoch"], checkpoint["val_acc"], checkpoint["best_val_acc"]
+    
+    # Handle both new F1-based checkpoints and old accuracy-based checkpoints for backwards compatibility
+    epoch = checkpoint["epoch"]
+    val_acc = checkpoint["val_acc"]
+    best_val_acc = checkpoint["best_val_acc"]
+    
+    # Get F1 values if available, otherwise default to 0
+    val_f1 = checkpoint.get("val_f1", 0.0)
+    best_val_f1 = checkpoint.get("best_val_f1", 0.0)
+    
+    return epoch, val_acc, best_val_acc, val_f1, best_val_f1
 
 
 def evaluate_model(model, test_loader, criterion):
@@ -444,14 +461,26 @@ def train_model(model, train_loader, val_loader, optimizer, criterion, scheduler
         patience = PATIENCE
         
     train_metrics = []
-    best_val_acc = 0
+    best_val_acc = 0  # Keep for backwards compatibility
+    best_val_f1 = 0   # Primary metric for model selection
     no_improve_count = 0
 
     for epoch in range(num_epochs):
         train_loss, train_f1 = train_epoch(model, train_loader, optimizer, criterion)
         val_loss, val_acc, val_f1 = validate(model, val_loader, criterion)
-        scheduler.step(val_acc)
+        
+        # Get current learning rate before update
         current_lr = optimizer.param_groups[0]["lr"]
+        
+        # Use F1 score instead of accuracy for scheduler
+        scheduler.step(val_f1)
+        
+        # Check if learning rate changed
+        new_lr = optimizer.param_groups[0]["lr"]
+        if new_lr != current_lr:
+            print(f"Learning rate changed: {current_lr:.2e} → {new_lr:.2e}")
+            
+        current_lr = new_lr
         epoch_metrics = {
             "epoch": epoch + 1,
             "train_loss": train_loss,
@@ -468,8 +497,10 @@ def train_model(model, train_loader, val_loader, optimizer, criterion, scheduler
         print(
             f"Validation Loss: {val_loss:.4f}, Val Accuracy: {val_acc * 100:.2f}%, Val F1: {val_f1:.4f}"
         )
-        if val_acc > best_val_acc:
-            best_val_acc = val_acc
+        # Save model based on F1 score rather than accuracy
+        if val_f1 > best_val_f1:
+            best_val_f1 = val_f1
+            best_val_acc = max(best_val_acc, val_acc)  # Keep this updated for backwards compatibility
             no_improve_count = 0
             # Ensure model subdirectory exists
             model_dir = os.path.join(CHECKPOINT_DIR, "model")
@@ -480,12 +511,14 @@ def train_model(model, train_loader, val_loader, optimizer, criterion, scheduler
                 epoch,
                 val_acc,
                 best_val_acc,
+                val_f1,
+                best_val_f1,
                 os.path.join(
                     model_dir, "best_model.pt"
                 ),  # Updated to save in checkpoints/model
             )
             print(
-                f"New best model saved with validation accuracy: {val_acc * 100:.2f}%"
+                f"New best model saved with validation F1: {val_f1:.4f} (accuracy: {val_acc * 100:.2f}%)"
             )
         else:
             no_improve_count += 1
@@ -1130,6 +1163,7 @@ def main():
         optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     criterion = nn.CrossEntropyLoss()
+    # Learning rate scheduler using F1 score as the metric to monitor
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="max", factor=0.5, patience=LR_PATIENCE, min_lr=float(MIN_LR)
     )

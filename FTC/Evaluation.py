@@ -516,8 +516,11 @@ def cross_validate(
                 classifier = create_classifier(embedding_dim, num_classes, best_config)
                 model = EvaluationBertClassifier(triplet_model, classifier).to(device)
 
-                # Load the model checkpoint
-                checkpoint = torch.load(trained_model_path, map_location=device)
+                # Load the model checkpoint with explicit weights_only=False to silence warning
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=FutureWarning, message=".*weights_only.*")
+                    checkpoint = torch.load(trained_model_path, map_location=device)
 
                 # Handle different checkpoint formats
                 if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
@@ -554,8 +557,9 @@ def cross_validate(
 
             # Add learning rate scheduler (using F1 score as the metric to monitor)
             lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer, mode="max", factor=0.5, patience=2, verbose=True
+                optimizer, mode="max", factor=0.5, patience=2
             )
+            # We'll manually print LR changes by checking get_last_lr()
 
             # Enhanced training
             best_val_acc = 0  # Keep for reference
@@ -630,9 +634,17 @@ def cross_validate(
                     f"  Epoch {epoch + 1}/{num_epochs}: Train F1 = {train_f1:.4f}, Val F1 = {val_f1:.4f}"
                 )
 
+                # Get current learning rate before update
+                current_lr = optimizer.param_groups[0]['lr']
+                
                 # Learning rate scheduling - use F1 instead of accuracy
                 lr_scheduler.step(val_f1)
-
+                
+                # Check if learning rate changed and print message if it did
+                new_lr = optimizer.param_groups[0]['lr']
+                if new_lr != current_lr:
+                    print(f"    Learning rate changed: {current_lr:.2e} → {new_lr:.2e}")
+                
                 # Save best model based on F1 score instead of accuracy
                 if val_f1 > best_val_f1:
                     best_val_f1 = val_f1

@@ -158,7 +158,11 @@ def load_checkpoint_safely(model, checkpoint_path, optimizer=None, map_location=
         if not os.path.exists(checkpoint_path):
             raise FileNotFoundError(f"Checkpoint file not found: {checkpoint_path}")
         
-        checkpoint = torch.load(checkpoint_path, map_location=map_location)
+        # Load checkpoint with warning suppression for weights_only
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning, message=".*weights_only.*")
+            checkpoint = torch.load(checkpoint_path, map_location=map_location)
         
         try:
             # Handle different checkpoint formats
