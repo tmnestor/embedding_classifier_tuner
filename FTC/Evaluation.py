@@ -89,64 +89,18 @@ def get_device():
 
 
 # Create a custom BertClassifier for Evaluation that can handle direct embeddings
-class EvaluationBertClassifier(nn.Module):
-    """BertClassifier that can handle both direct embeddings and tokenized inputs"""
+# Import BertClassifier directly for consistent model structure
+from FTC.BertClassification import BertClassifier
 
-    def __init__(self, triplet_model, classifier):
-        """
-        Initialize the EvaluationBertClassifier.
-        
-        Args:
-            triplet_model: The triplet BERT model for generating embeddings
-            classifier: The classification head that processes embeddings
-        """
-        super(EvaluationBertClassifier, self).__init__()
-        self.triplet_model = triplet_model
-        self.classifier = classifier
-
-    def forward(self, inputs):
-        """
-        Forward pass that handles both direct embeddings and tokenized inputs.
-
-        Args:
-            inputs: Either a tensor (direct embeddings) or a dictionary with input_ids/attention_mask
-
-        Returns:
-            logits: Classification logits
-        """
-        # Check if inputs is already a tensor (embedding)
-        if isinstance(inputs, torch.Tensor):
-            # Direct embeddings - pass directly to classifier
-            return self.classifier(inputs)
-
-        # Dictionary with tokenized inputs - process through triplet model
-        elif isinstance(inputs, dict):
-            try:
-                if "input_ids" in inputs and "attention_mask" in inputs:
-                    embeddings = self.triplet_model(
-                        inputs["input_ids"], inputs["attention_mask"]
-                    )
-                    return self.classifier(embeddings)
-                else:
-                    # If input_ids/attention_mask aren't available, try the first tensor
-                    for key, value in inputs.items():
-                        if isinstance(value, torch.Tensor):
-                            return self.classifier(value)
-            except Exception as e:
-                # Fall back to using any tensor in the inputs
-                for key, value in inputs.items():
-                    if isinstance(value, torch.Tensor):
-                        if value.dim() == 1:
-                            # Add batch dimension if needed
-                            value = value.unsqueeze(0)
-                        return self.classifier(value)
-
-            # If we get here, we couldn't find a usable tensor
-            raise ValueError(f"Could not find usable tensor in inputs: {type(inputs)}")
-
-        # Handle other types of inputs
-        else:
-            raise ValueError(f"Unsupported input type: {type(inputs)}")
+# For compatibility - make EvaluationBertClassifier an alias of BertClassifier
+class EvaluationBertClassifier(BertClassifier):
+    """
+    This is now just an alias for BertClassifier to ensure compatibility with saved models.
+    Uses the exact same implementation as BertClassification.py.
+    """
+    pass
+    
+    # Note: We're inheriting the forward method from BertClassifier, so we don't need to redefine it here.
 
 
 class CrossValidationDataset(Dataset):
@@ -220,11 +174,7 @@ class CrossValidationDataset(Dataset):
 
 
 def create_classifier(input_dim: int, output_dim: int, config: Dict) -> nn.Module:
-    """Create a classifier based on configuration"""
-    # Get parameters with good defaults
-    dropout_rate = config.get("dropout_rate", 0.3)
-    activation_fn = config.get("activation", "gelu")
-
+    """Create a classifier based on configuration - ALWAYS using the same approach as BertClassification.py"""
     # Handle potential dimension mismatch in the config
     if "input_dim" in config and config["input_dim"] != input_dim:
         print(f"WARNING: Dimension mismatch detected! Updating from {config['input_dim']} to {input_dim}")
@@ -237,57 +187,13 @@ def create_classifier(input_dim: int, output_dim: int, config: Dict) -> nn.Modul
             print(f"WARNING: Architecture dimension mismatch! Updating from {first_layer['input_size']} to {input_dim}")
             first_layer["input_size"] = input_dim
 
-    # Create a simpler classifier that's less prone to issues
-    class SimpleClassifier(nn.Module):
-        """
-        A simple classifier with a single hidden layer for BERT embeddings.
-        
-        The classifier applies a linear transformation followed by batch normalization,
-        ReLU activation, dropout, and a final linear layer to produce class logits.
-        """
-        
-        def __init__(self, input_dim, output_dim, dropout_rate=0.3):
-            """
-            Initialize the SimpleClassifier.
-            
-            Args:
-                input_dim: Dimension of input embeddings
-                output_dim: Number of output classes
-                dropout_rate: Dropout probability (default: 0.3)
-            """
-            super(SimpleClassifier, self).__init__()
-            # Use a single hidden layer to avoid overfitting
-            hidden_size = max(input_dim // 2, output_dim * 4)
-
-            self.layers = nn.Sequential(
-                nn.Linear(input_dim, hidden_size),
-                nn.BatchNorm1d(hidden_size),
-                nn.ReLU(),
-                nn.Dropout(dropout_rate),
-                nn.Linear(hidden_size, output_dim),
-            )
-
-            # Initialize weights
-            for m in self.modules():
-                if isinstance(m, nn.Linear):
-                    nn.init.xavier_uniform_(m.weight)
-                    if m.bias is not None:
-                        nn.init.constant_(m.bias, 0)
-
-        def forward(self, x):
-            """
-            Forward pass through the classifier.
-            
-            Args:
-                x: Input tensor of shape (batch_size, input_dim)
-                
-            Returns:
-                torch.Tensor: Output logits of shape (batch_size, output_dim)
-            """
-            return self.layers(x)
-
-    # Use our simpler classifier
-    return SimpleClassifier(input_dim, output_dim, dropout_rate)
+    # Import the create_classifier_from_config function from BertClassification
+    from FTC.BertClassification import create_classifier_from_config
+    
+    # ALWAYS use the exact same classifier creation function as BertClassification.py
+    # This ensures consistent architecture whether loading a pretrained model or training from scratch
+    print("Using create_classifier_from_config from BertClassification.py for consistent architecture")
+    return create_classifier_from_config(config, input_dim, output_dim)
 
     # The code below is commented out but kept for reference
     """
@@ -315,8 +221,11 @@ def create_classifier(input_dim: int, output_dim: int, config: Dict) -> nn.Modul
 
 def get_optimizer(model: nn.Module, config: Dict) -> torch.optim.Optimizer:
     """Create optimizer based on configuration"""
-    optimizer_name = config.get("optimizer", "adam")
-    lr = float(config.get("lr", 0.001))
+    # Import LEARNING_RATE from FTC_utils.shared to match BertClassification.py
+    from FTC_utils.shared import LEARNING_RATE
+    
+    optimizer_name = config.get("optimizer", "adamw")
+    lr = float(config.get("lr", LEARNING_RATE))
     weight_decay = float(config.get("weight_decay", 0.0001))
 
     # Check if model has any trainable parameters
@@ -342,8 +251,18 @@ def get_optimizer(model: nn.Module, config: Dict) -> torch.optim.Optimizer:
             weight_decay=weight_decay,
             nesterov=nesterov,
         )
+    elif optimizer_name.lower() == "rmsprop":
+        momentum = config.get("momentum", 0.0)
+        alpha = config.get("alpha", 0.99)
+        return torch.optim.RMSprop(
+            model.parameters(),
+            lr=lr,
+            momentum=momentum,
+            weight_decay=weight_decay,
+            alpha=alpha,
+        )
     else:
-        return torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+        return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
 
 def cross_validate(
@@ -722,7 +641,12 @@ def cross_validate(
         
         # Clean up memory between folds
         print(f"Cleaning up memory for fold {fold + 1}")
-        del model, optimizer, criterion
+        del model
+        # Only delete optimizer and criterion if they were created (not when using pre-trained model)
+        if not (trained_model_path and use_trained_model):
+            del optimizer
+        if 'criterion' in locals():
+            del criterion
         del train_ds, val_ds, test_ds
         del train_loader, val_loader, test_loader
         del triplet_model
