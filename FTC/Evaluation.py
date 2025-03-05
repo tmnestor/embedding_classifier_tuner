@@ -40,8 +40,8 @@ from FTC_utils.logging_utils import tee_to_file
 from FTC_utils.LoaderSetup import join_constructor, env_var_or_default_constructor
 from FTC_utils.env_utils import check_environment
 
-# Start capturing output to log file
-log_file = tee_to_file("Evaluation")
+# Start capturing output to log file with reduced verbosity
+log_file = tee_to_file("Evaluation", verbose=False)
 
 # Register YAML constructors
 yaml.add_constructor("!join", join_constructor, Loader=yaml.SafeLoader)
@@ -315,8 +315,8 @@ def cross_validate(
     # We'll load a separate triplet model for each fold to avoid data leakage
     # Just get the embedding dimension now for planning
     try:
-        # Temporary model just to get dimensions
-        temp_triplet_model = load_triplet_model(device)
+        # Temporary model just to get dimensions - with reduced verbosity
+        temp_triplet_model = load_triplet_model(device, verbose=False)
         embedding_dim = temp_triplet_model.base_model.config.hidden_size
         # Delete the model to free up memory
         del temp_triplet_model
@@ -383,7 +383,7 @@ def cross_validate(
         
         # Load a fresh triplet model for each fold to avoid data leakage
         print(f"Loading fresh triplet model for fold {fold + 1}")
-        triplet_model = load_triplet_model(device)
+        triplet_model = load_triplet_model(device, verbose=False)
 
         # Split data
         df_train = df.iloc[train_idx].reset_index(drop=True)
@@ -725,6 +725,44 @@ def plot_confusion_matrix(
     plt.close()
 
 
+def plot_classification_report(report: Dict, output_path: str = "classification_report_heatmap.png"):
+    """
+    Plot classification report as a heatmap
+    
+    Args:
+        report: Classification report dictionary from sklearn
+        output_path: Path to save the output image
+    """
+    # Extract metrics excluding the averages
+    metrics_data = {}
+    for label, metrics in report.items():
+        if label not in ["accuracy", "macro avg", "weighted avg", "samples avg"]:
+            metrics_data[label] = {
+                "precision": metrics["precision"],
+                "recall": metrics["recall"],
+                "f1-score": metrics["f1-score"]
+            }
+    
+    # Convert to DataFrame for heatmap
+    df = pd.DataFrame(metrics_data).T
+    
+    # Create heatmap
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(
+        df,
+        annot=True,
+        fmt=".3f",
+        cmap="YlGnBu",
+        vmin=0.0,
+        vmax=1.0,
+        linewidths=0.5
+    )
+    plt.title("Classification Report Heatmap")
+    plt.tight_layout()
+    plt.savefig(output_path)
+    plt.close()
+
+
 def generate_misclassification_word_clouds(
     misclassifications: List[Dict],
     class_names: List[str],
@@ -1020,6 +1058,25 @@ def main():
         results["confusion_matrix"],
         results["classes"],
         output_path=str(Path(eval_dir) / "confusion_matrix.png"),
+    )
+    
+    # Plot classification report heatmap
+    # Combine class reports from all folds by averaging
+    avg_report = {}
+    for cls in results["classes"]:
+        avg_report[cls] = {"precision": 0, "recall": 0, "f1-score": 0, "support": 0}
+        
+    for report in results["reports"]:
+        for cls in results["classes"]:
+            if cls in report:
+                avg_report[cls]["precision"] += report[cls]["precision"] / len(results["reports"])
+                avg_report[cls]["recall"] += report[cls]["recall"] / len(results["reports"])
+                avg_report[cls]["f1-score"] += report[cls]["f1-score"] / len(results["reports"])
+                avg_report[cls]["support"] += report[cls]["support"] / len(results["reports"])
+    
+    plot_classification_report(
+        avg_report,
+        output_path=str(Path(eval_dir) / "classification_report_heatmap.png"),
     )
 
     # Generate word clouds for misclassified samples

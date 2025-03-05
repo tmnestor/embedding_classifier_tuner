@@ -49,15 +49,17 @@ LOGS_DIR.mkdir(parents=True, exist_ok=True)
 class TeeLogger:
     """Logger that writes to both console and file simultaneously."""
 
-    def __init__(self, filename: str, mode: str = "a", log_dir = LOGS_DIR):
+    def __init__(self, filename: str, mode: str = "a", log_dir = LOGS_DIR, verbose: bool = False):
         """Initialize the TeeLogger.
 
         Args:
             filename (str): Base name of the log file
             mode (str): File opening mode ('a' for append, 'w' for write)
             log_dir: Directory to store log files (Path or str)
+            verbose: Whether to print logging messages to console
         """
         self.terminal = sys.stdout
+        self.verbose = verbose
 
         # Convert log_dir to Path object and create directory if it doesn't exist
         log_dir_path = Path(log_dir)
@@ -77,7 +79,8 @@ class TeeLogger:
         self.log_file = open(log_path, mode, buffering=1, encoding="utf-8")
         self.filename = log_path
 
-        print(f"Logging output to: {log_path}")
+        if self.verbose:
+            print(f"Logging output to: {log_path}")
 
     def write(self, message):
         """Write to both terminal and log file."""
@@ -180,12 +183,13 @@ def configure_logger(module_name: str) -> logging.Logger:
     return logger
 
 
-def tee_to_file(module_name: str = None):
+def tee_to_file(module_name: str = None, verbose: bool = False):
     """Redirect stdout and stderr to both console and log file.
 
     Args:
         module_name (str, optional): Name of the module for the log file.
             If None, uses the caller's module name.
+        verbose (bool): Whether to print log file locations to console.
 
     Returns:
         str: Path to the log file
@@ -197,11 +201,11 @@ def tee_to_file(module_name: str = None):
         frame = inspect.stack()[1]
         module_name = os.path.splitext(os.path.basename(frame.filename))[0]
 
-    # Create TeeLogger for stdout and stderr
-    stdout_logger = TeeLogger(f"{module_name}_stdout")
+    # Create TeeLogger for stdout and stderr with specified verbosity
+    stdout_logger = TeeLogger(f"{module_name}_stdout", verbose=verbose)
     sys.stdout = stdout_logger
 
-    stderr_logger = TeeLogger(f"{module_name}_stderr")
+    stderr_logger = TeeLogger(f"{module_name}_stderr", verbose=verbose)
     sys.stderr = stderr_logger
 
     return stdout_logger.filename

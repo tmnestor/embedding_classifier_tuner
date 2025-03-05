@@ -75,15 +75,22 @@ class TripletEmbeddingModel(nn.Module):
         return normalized_output
 
 
-def load_triplet_model(device):
+def load_triplet_model(device, verbose=False):
     """
     Load the trained triplet model from the path specified in config.yml.
     
     TripletTraining.py saves the model with additional metadata in a dictionary,
     so we need to extract the model_state_dict from it.
+    
+    Args:
+        device: The device to load the model on
+        verbose: Whether to print detailed messages (default: False)
     """
     model_path = EMBEDDING_PATH
-    print(f"Loading trained triplet model from: {model_path}")
+    if verbose:
+        print(f"Loading trained triplet model from: {model_path}")
+    else:
+        print(f"[DEBUG] Loading model '{MODEL_NAME}' in TripletTraining.py")
     
     if not os.path.exists(model_path):
         raise FileNotFoundError(
@@ -95,7 +102,10 @@ def load_triplet_model(device):
     try:
         # If MODEL_PATH is explicitly set in config, use it
         if MODEL_PATH:
-            print(f"Using explicit model path from config: {MODEL_PATH}")
+            if verbose:
+                print(f"Using explicit model path from config: {MODEL_PATH}")
+            else:
+                print(f"Using explicit model path: {MODEL_PATH}")
             base_model = AutoModel.from_pretrained(MODEL_PATH, local_files_only=True).to(device)
         else:
             # Otherwise use the model name
@@ -103,7 +113,8 @@ def load_triplet_model(device):
             
         # Create and return the triplet model
         triplet_model = TripletEmbeddingModel(base_model).to(device)
-        print(f"Created model architecture using: {MODEL_NAME}")
+        if verbose:
+            print(f"Created model architecture using: {MODEL_NAME}")
     except Exception as e:
         print(f"ERROR loading model: {type(e).__name__}: {e}")
         raise
@@ -116,33 +127,39 @@ def load_triplet_model(device):
             checkpoint = torch.load(model_path, map_location=device)
         
         # Print checkpoint keys to help debug
-        print(f"Checkpoint contains keys: {list(checkpoint.keys()) if isinstance(checkpoint, dict) else 'not a dict'}")
+        if verbose:
+            print(f"Checkpoint contains keys: {list(checkpoint.keys()) if isinstance(checkpoint, dict) else 'not a dict'}")
         
         # Extract state_dict based on format
         if isinstance(checkpoint, dict):
             if "model_state_dict" in checkpoint:
                 # Standard format with model_state_dict key
                 state_dict = checkpoint["model_state_dict"]
-                print(f"Using model_state_dict from checkpoint")
+                if verbose:
+                    print(f"Using model_state_dict from checkpoint")
             elif "state_dict" in checkpoint:
                 # Alternative format with state_dict key
                 state_dict = checkpoint["state_dict"]
-                print(f"Using state_dict from checkpoint")
+                if verbose:
+                    print(f"Using state_dict from checkpoint")
             else:
                 # Assume the entire dict is the state_dict
                 state_dict = checkpoint
-                print(f"Using entire checkpoint as state_dict")
+                if verbose:
+                    print(f"Using entire checkpoint as state_dict")
         else:
             # Assume the checkpoint itself is the state_dict
             state_dict = checkpoint
-            print(f"Checkpoint is not a dict, using directly")
+            if verbose:
+                print(f"Checkpoint is not a dict, using directly")
         
         # Load the state_dict into the model
         triplet_model.load_state_dict(state_dict, strict=False)
-        print(f"Successfully loaded trained weights from: {model_path}")
+        if verbose:
+            print(f"Successfully loaded trained weights from: {model_path}")
         
         # Print metadata if available
-        if isinstance(checkpoint, dict):
+        if verbose and isinstance(checkpoint, dict):
             metadata_keys = [k for k in checkpoint.keys() if k not in ["model_state_dict", "state_dict"]]
             if metadata_keys:
                 print(f"Model also contains metadata: {metadata_keys}")
