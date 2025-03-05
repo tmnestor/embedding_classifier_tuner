@@ -225,6 +225,18 @@ def create_classifier(input_dim: int, output_dim: int, config: Dict) -> nn.Modul
     dropout_rate = config.get("dropout_rate", 0.3)
     activation_fn = config.get("activation", "gelu")
 
+    # Handle potential dimension mismatch in the config
+    if "input_dim" in config and config["input_dim"] != input_dim:
+        print(f"WARNING: Dimension mismatch detected! Updating from {config['input_dim']} to {input_dim}")
+        config["input_dim"] = input_dim
+        
+    # Check for architecture and update first layer's input dimension if needed
+    if "architecture" in config and len(config["architecture"]) > 0:
+        first_layer = config["architecture"][0]
+        if "input_size" in first_layer and first_layer["input_size"] != input_dim:
+            print(f"WARNING: Architecture dimension mismatch! Updating from {first_layer['input_size']} to {input_dim}")
+            first_layer["input_size"] = input_dim
+
     # Create a simpler classifier that's less prone to issues
     class SimpleClassifier(nn.Module):
         """
@@ -377,9 +389,9 @@ def cross_validate(
 
     # Load the tokenizer matching the model specified in config.yml
     from transformers import AutoTokenizer
-    from FTC_utils.shared import MODEL
+    from FTC_utils.shared import MODEL_PATH
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, local_files_only=True)
 
     # We'll load a separate triplet model for each fold to avoid data leakage
     # Just get the embedding dimension now for planning
@@ -540,13 +552,14 @@ def cross_validate(
             optimizer = get_optimizer(model, best_config)
             criterion = nn.CrossEntropyLoss()
 
-            # Add learning rate scheduler
+            # Add learning rate scheduler (using F1 score as the metric to monitor)
             lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                 optimizer, mode="max", factor=0.5, patience=2, verbose=True
             )
 
             # Enhanced training
-            best_val_acc = 0
+            best_val_acc = 0  # Keep for reference
+            best_val_f1 = 0   # Primary metric for model selection
             best_model_state = None
             patience_counter = 0
 
@@ -617,17 +630,17 @@ def cross_validate(
                     f"  Epoch {epoch + 1}/{num_epochs}: Train F1 = {train_f1:.4f}, Val F1 = {val_f1:.4f}"
                 )
 
-                # Learning rate scheduling
-                lr_scheduler.step(val_acc)
+                # Learning rate scheduling - use F1 instead of accuracy
+                lr_scheduler.step(val_f1)
 
-                # Save best model
-                if val_acc > best_val_acc:
-                    best_val_acc = val_acc
+                # Save best model based on F1 score instead of accuracy
+                if val_f1 > best_val_f1:
+                    best_val_f1 = val_f1
                     best_model_state = {
                         k: v.cpu().clone() for k, v in model.state_dict().items()
                     }
                     patience_counter = 0
-                    print(f"    New best validation accuracy: {val_acc:.4f}")
+                    print(f"    New best validation F1: {val_f1:.4f} (accuracy: {val_acc:.4f})")
                 else:
                     patience_counter += 1
                     print(f"    No improvement for {patience_counter} epochs")

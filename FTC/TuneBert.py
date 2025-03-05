@@ -193,7 +193,7 @@ class BERTClassifierTuned(nn.Module):
 
 
 def objective(trial, device, epochs=None, total_trials=None, large_dataset=False):
-    """Objective function for Optuna optimization
+    """Objective function for Optuna optimization using F1 score as the target metric
 
     Args:
         trial: Optuna trial object
@@ -201,6 +201,9 @@ def objective(trial, device, epochs=None, total_trials=None, large_dataset=False
         epochs: Number of epochs to train for (overrides default)
         total_trials: Total number of trials for display purposes
         large_dataset: Whether to use chunked loading for large datasets
+        
+    Returns:
+        float: The validation F1 score achieved by the model
     """
     # Use default values if not provided
     if epochs is None:
@@ -259,7 +262,8 @@ def objective(trial, device, epochs=None, total_trials=None, large_dataset=False
 
     # We've already set n_epochs at the beginning of the function
     n_epochs = epochs
-    best_val_acc = 0
+    best_val_acc = 0  # Keep for backward compatibility
+    best_val_f1 = 0   # Primary metric for optimization
 
     # Print trial information with 1-based indexing
     print(f"Trial {trial.number + 1}/{total_trials}: Testing hyperparameters...")
@@ -274,12 +278,13 @@ def objective(trial, device, epochs=None, total_trials=None, large_dataset=False
             loss.backward()
             optimizer.step()
 
-        # Evaluation phase
-        _, val_acc, _ = validate(model, val_loader, criterion)
-        best_val_acc = max(best_val_acc, val_acc)
+        # Evaluation phase - use F1 score as primary metric 
+        _, val_acc, val_f1 = validate(model, val_loader, criterion)
+        best_val_acc = max(best_val_acc, val_acc)  # Keep for reporting
+        best_val_f1 = max(best_val_f1, val_f1)     # Use for optimization
 
-        # Report intermediate objective value to Optuna without printing
-        trial.report(val_acc, epoch)
+        # Report intermediate F1 score to Optuna without printing
+        trial.report(val_f1, epoch)
 
         # Handle pruning (early stopping of unpromising trials)
         if trial.should_prune():
@@ -287,10 +292,11 @@ def objective(trial, device, epochs=None, total_trials=None, large_dataset=False
 
     # Print the final result with 1-based indexing
     print(
-        f"Trial {trial.number + 1}/{total_trials}: Complete - This trial's best accuracy: {best_val_acc:.4f}"
+        f"Trial {trial.number + 1}/{total_trials}: Complete - This trial's best F1: {best_val_f1:.4f} (accuracy: {best_val_acc:.4f})"
     )
 
-    return best_val_acc
+    # Return F1 score as the primary optimization metric
+    return best_val_f1
 
 
 def get_arg_parser():
@@ -392,8 +398,8 @@ def main():
         # Create and run the study
         study = optuna.create_study(direction="maximize", study_name=study_name)
 
-        # Track the global best accuracy across all trials
-        global_best_accuracy = 0.0
+        # Track the global best F1 score across all trials
+        global_best_f1 = 0.0
 
         # Define objective function with all necessary parameters
         def trial_objective(trial):
@@ -403,10 +409,10 @@ def main():
                 trial (optuna.Trial): The Optuna trial object
 
             Returns:
-                float: The validation accuracy achieved by the model with the trial's hyperparameters
+                float: The validation F1 score achieved by the model with the trial's hyperparameters
             """
-            nonlocal global_best_accuracy
-            trial_accuracy = objective(
+            nonlocal global_best_f1
+            trial_f1 = objective(
                 trial,
                 device=device,
                 epochs=epochs_per_trial,
@@ -414,14 +420,14 @@ def main():
                 large_dataset=large_dataset,
             )
 
-            # Update and display the global best accuracy
-            if trial_accuracy > global_best_accuracy:
-                global_best_accuracy = trial_accuracy
+            # Update and display the global best F1 score
+            if trial_f1 > global_best_f1:
+                global_best_f1 = trial_f1
                 print(
-                    f"New best accuracy across all trials: {global_best_accuracy:.4f}"
+                    f"New best F1 score across all trials: {global_best_f1:.4f}"
                 )
 
-            return trial_accuracy
+            return trial_f1
 
         # Run optimization with the specified number of trials
         study.optimize(trial_objective, n_trials=num_trials)
@@ -432,7 +438,7 @@ def main():
         print("=" * 50)
         print(f"Best trial: #{study.best_trial.number + 1}")
         trial = study.best_trial
-        print(f"Global best validation accuracy: {trial.value:.4f}")
+        print(f"Global best validation F1 score: {trial.value:.4f}")
 
         print("\nBest hyperparameters: ")
         for key, value in trial.params.items():

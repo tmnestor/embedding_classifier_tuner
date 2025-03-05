@@ -84,8 +84,8 @@ if torch.cuda.is_available():
 NUM_EPOCHS = config["NUM_EPOCHS"]
 BATCH_SIZE = config["BATCH_SIZE"]
 MAX_SEQ_LEN = config["MAX_SEQ_LEN"]
-MODEL = config["MODEL"]
 MODEL_NAME = config["MODEL_NAME"]
+MODEL_PATH = config["MODEL_PATH"]
 CSV_PATH = config["CSV_PATH"]
 TRAIN_CSV = config["TRAIN_CSV"]
 VAL_CSV = config["VAL_CSV"]
@@ -657,7 +657,7 @@ def generate_embedding_csv_data(triplet_model, device):
     df_val["label_enc"] = label_encoder.transform(df_val["labels"])
     df_test["label_enc"] = label_encoder.transform(df_test["labels"])
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, local_files_only=True)
 
     # Helper: compute mean pooled embedding from triplet_model output with batching
     def compute_embeddings_batched(texts, batch_size=32):
@@ -764,7 +764,7 @@ def load_embedding_data(device):
 
 # Add new function to load the TripletEmbeddingModel
 def load_triplet_model(device):
-    base_model = AutoModel.from_pretrained(MODEL).to(device)
+    base_model = AutoModel.from_pretrained(MODEL_PATH, local_files_only=True).to(device)
     triplet_model = TripletEmbeddingModel(base_model).to(device)
 
     try:
@@ -850,6 +850,14 @@ def create_classifier_from_config(config, input_dim, output_dim):
         print("Creating classifier from explicit architecture definition")
         architecture = config["architecture"]
         layers = []
+
+        # Update the architecture to match the current model's embedding dimensions
+        if len(architecture) > 0 and architecture[0].get("layer_type") == "dense_block":
+            actual_dim = architecture[0]["input_size"]
+            if actual_dim != input_dim:
+                print(f"WARNING: Architecture dimension mismatch! Updating from {actual_dim} to {input_dim}")
+                # Update the first layer's input size to match the actual embedding dimension
+                architecture[0]["input_size"] = input_dim
 
         # Create each layer according to its definition
         for layer in architecture:
@@ -1003,7 +1011,7 @@ def main():
 
     # Initialize tokenizer for processing raw text
     print("Initializing tokenizer for text processing...")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH, local_files_only=True)
 
     # Load the data using our TextDataset approach (no precomputed embeddings)
     print("Loading and processing raw text data...")
