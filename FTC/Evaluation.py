@@ -365,6 +365,7 @@ def cross_validate(
     all_f1_scores = []
     all_precision_scores = []
     all_recall_scores = []
+    all_accuracy_scores = []
     fold_misclassifications = []
 
     # Cross-validation loop
@@ -625,14 +626,17 @@ def cross_validate(
         fold_f1 = f1_score(all_labels, all_preds, average="macro")
         fold_precision = precision_score(all_labels, all_preds, average="macro")
         fold_recall = recall_score(all_labels, all_preds, average="macro")
+        fold_accuracy = np.mean(np.array(all_preds) == np.array(all_labels))
 
         all_f1_scores.append(fold_f1)
         all_precision_scores.append(fold_precision)
         all_recall_scores.append(fold_recall)
+        all_accuracy_scores.append(fold_accuracy)
 
         print(f"Fold {fold + 1} F1 Score (macro): {fold_f1:.4f}")
         print(f"Fold {fold + 1} Precision (macro): {fold_precision:.4f}")
         print(f"Fold {fold + 1} Recall (macro): {fold_recall:.4f}")
+        print(f"Fold {fold + 1} Accuracy: {fold_accuracy:.4f}")
 
         # Print confusion matrix for this fold
         fold_cm = confusion_matrix(all_labels, all_preds)
@@ -677,6 +681,9 @@ def cross_validate(
         print(
             f"Recall (macro): {np.mean(all_recall_scores):.4f} ± {np.std(all_recall_scores):.4f}"
         )
+        print(
+            f"Accuracy: {np.mean(all_accuracy_scores):.4f} ± {np.std(all_accuracy_scores):.4f}"
+        )
     else:
         print("No metrics were collected across folds.")
 
@@ -689,6 +696,7 @@ def cross_validate(
         "f1_scores": all_f1_scores,
         "precision_scores": all_precision_scores,
         "recall_scores": all_recall_scores,
+        "accuracy_scores": all_accuracy_scores,
         "confusion_matrix": cm,
         "misclassifications": fold_misclassifications,
         "classes": label_encoder.classes_,
@@ -1029,6 +1037,7 @@ def main():
             "F1 (macro)": results["f1_scores"],
             "Precision (macro)": results["precision_scores"],
             "Recall (macro)": results["recall_scores"],
+            "Accuracy": results["accuracy_scores"],
         }
     )
 
@@ -1038,12 +1047,14 @@ def main():
         np.mean(results["f1_scores"]),
         np.mean(results["precision_scores"]),
         np.mean(results["recall_scores"]),
+        np.mean(results["accuracy_scores"]),
     ]
     metrics_df.loc[n_folds + 1] = [
         "Std",
         np.std(results["f1_scores"]),
         np.std(results["precision_scores"]),
         np.std(results["recall_scores"]),
+        np.std(results["accuracy_scores"]),
     ]
 
     # Save metrics to CSV using pathlib for safe path handling
@@ -1063,6 +1074,9 @@ def main():
     )
     print(
         f"Recall (macro): {np.mean(results['recall_scores']):.4f} ± {np.std(results['recall_scores']):.4f}"
+    )
+    print(
+        f"Accuracy: {np.mean(results['accuracy_scores']):.4f} ± {np.std(results['accuracy_scores']):.4f}"
     )
     print(f"Results saved to: {eval_dir}")
 
