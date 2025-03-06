@@ -773,12 +773,17 @@ def plot_classification_report(report: Dict, output_path: str = "classification_
     )
     plt.title("Classification Report Heatmap")
     
-    # Add note about adjusted scale if using non-standard scale
-    if vmin > 0.0:
-        plt.figtext(0.5, 0.01, f"Note: Color scale adjusted to range [{vmin:.1f}, 1.0] for better visualization", 
-                   ha="center", fontsize=9, bbox={"facecolor":"white", "alpha":0.5, "pad":5})
-        
+    # Apply tight layout to adjust the plot properly
     plt.tight_layout()
+    
+    # Add note about adjusted scale below the plot
+    if vmin > 0.0:
+        # Increase figure size to make room for text at bottom
+        fig = plt.gcf()
+        fig.subplots_adjust(bottom=0.15)  # Make space at the bottom
+        plt.figtext(0.5, 0.05, f"Note: Color scale adjusted to range [{vmin:.1f}, 1.0] for better visualization", 
+                   ha="center", fontsize=9, bbox={"facecolor":"white", "alpha":0.5, "pad":5})
+    
     plt.savefig(output_path)
     plt.close()
 
