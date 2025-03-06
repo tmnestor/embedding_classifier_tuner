@@ -135,6 +135,18 @@ The trained triplet model is used to generate embeddings on-the-fly for each dat
 
 `Predict.py` loads the trained model and makes predictions on new text data, adding predicted labels to the output.
 
+In this module, conformal prediction provides statistically guaranteed prediction sets rather than
+  just point predictions. The ConformalPredictor class calibrates on training data to compute
+  nonconformity scores (1 - confidence), then determines a threshold at the specified significance level
+  (default 0.1). When making predictions, it includes all classes in the prediction set where the
+  nonconformity score is below this threshold, ensuring that with 90% probability, the true class is
+  contained within the set. This approach quantifies prediction uncertainty by producing prediction sets
+  that vary in size based on the model's confidence - more confident predictions yield smaller sets, while
+   uncertain predictions yield larger sets. The implementation in Predict.py automatically falls back to
+  calibration if needed, saves calibration data for reuse, and includes the prediction sets alongside
+  traditional point predictions, allowing users to make decisions with a statistical guarantee on error
+  rates.
+
 ## Requirements
 
 - Python 3.10+
@@ -301,7 +313,7 @@ Runs cross-validation to assess model robustness, generates confusion matrices, 
 ### 5. Make Predictions
 
 ```bash
-python FTC/Predict.py [--input PATH] [--output PATH] [--significance 0.1] [--explain] [--explain-method shap] [--decision-support]
+python FTC/Predict.py [--input PATH] [--output PATH] [--significance 0.1]
 ```
 Loads the trained model and makes predictions on new data. Features include:
 - Conformal prediction sets with statistical guarantees
@@ -314,9 +326,6 @@ Loads the trained model and makes predictions on new data. Features include:
 - `--input`: Path to input CSV file (defaults to test file in config)
 - `--output`: Path to output predictions CSV file
 - `--significance`: Significance level for conformal prediction (default: 0.1)
-- `--explain`: Generate explanations for predictions
-- `--explain-method`: Explanation method to use (shap, lime, attention)
-- `--decision-support`: Generate comprehensive decision support reports
 - `--batch-size`: Batch size for prediction (default: 32)
 - `--large-file`: Process input file in chunks for very large datasets
 - `--chunk-size`: Number of rows to process at once when using --large-file
