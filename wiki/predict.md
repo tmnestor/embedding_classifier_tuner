@@ -1,151 +1,114 @@
-# Predict Module
+# Understanding the Predict.py Module
 
-## Purpose
+## Overview
 
-The Predict module provides a streamlined interface for applying your trained BERT classifier to new text data. It handles the end-to-end process of preparing input text, generating embeddings, and returning predictions with minimal setup required.
+The `Predict.py` module provides functionality for making predictions using the trained BERT embedding classifier. This module leverages the model trained through `TripletTraining.py` and tuned with `BertClassification.py` to classify text inputs.
 
-## Technical Background
+## Key Features
 
-This module integrates the trained models from previous steps into a cohesive pipeline:
+- Makes predictions on new text data using the trained model
+- Supports both individual predictions and batch processing
+- Provides confidence scores for predictions
+- Implements conformal prediction for uncertainty quantification
+- Handles large files by processing in chunks to avoid memory issues
 
-1. **Text preprocessing**: Cleans and normalizes input using the same pipeline as training
-2. **Embedding generation**: Applies the triplet-trained BERT model to create text embeddings
-3. **Classification**: Uses the tuned classifier to predict the most likely class
-
-The module reads the same configuration as other components, ensuring consistency throughout the pipeline.
-
-![Prediction Pipeline](uploads/prediction_pipeline.png)
-
-## Implementation
-
-The module centers around these key components:
-
-1. **PredictionDataset**: Handles on-the-fly tokenization for new text data
-2. **Model loading**: Reconstructs the exact architecture used during training
-3. **Prediction pipeline**: Processes batches efficiently with proper error handling
-
-```python
-class PredictionDataset(Dataset):
-    def __init__(self, texts, tokenizer, max_length):
-        self.texts = texts
-        self.tokenizer = tokenizer
-        self.max_length = max_length
-
-    def __len__(self):
-        return len(self.texts)
-
-    def __getitem__(self, idx):
-        text = preprocess_text(self.texts[idx])
-        encoded = self.tokenizer(
-            text,
-            max_length=self.max_length,
-            truncation=True,
-            padding="max_length",
-            return_tensors="pt",
-        )
-        # Return as tuple (inputs, dummy_label) to match TextDataset format
-        return {k: v.squeeze(0) for k, v in encoded.items()}, 0
-```
-
-## Usage
-
-### Command Line
+## Command Line Usage
 
 ```bash
-python Predict.py
+python FTC/Predict.py [--input PATH] [--output PATH] [--significance 0.1]
 ```
 
-This loads and processes the test data file specified in your config file.
+### Arguments
 
-### Programmatic Usage
+- `--input`: Path to input CSV file containing text to classify
+- `--output`: Path to save prediction results (CSV)
+- `--use-test-split`: Use the test split created by TripletTraining.py
+- `--verbose`: Show detailed model information
+- `--config`: Path to specific config file (overrides default)
+- `--significance`: Significance level for conformal prediction (default: 0.1)
+- `--batch-size`: Batch size for prediction (default: 32)
+- `--large-file`: Process input file in chunks for very large datasets
+- `--chunk-size`: Number of rows to process at once when using --large-file (default: 5000)
+
+## Core Components
+
+### Model Loading
+
+The module loads several key components:
+- Tokenizer from the specified model
+- Triplet embedding model (trained by TripletTraining.py)
+- Classifier model with the optimal configuration
+- Label encoder to map numeric predictions to class labels
+
+### Prediction Workflow
+
+1. **Input Processing**: Input text is preprocessed and tokenized
+2. **Feature Extraction**: The triplet model extracts embeddings from the processed text
+3. **Classification**: The classifier predicts labels from these embeddings
+4. **Uncertainty Quantification**: Conformal prediction provides prediction sets with statistical guarantees
+
+### Conformal Prediction
+
+The module implements conformal prediction to provide prediction sets with guaranteed error rates:
+- Each prediction includes a set of possible classes
+- The prediction set's size adapts to the difficulty of each sample
+- Guarantees that the true label is in the prediction set with probability (1-significance)
+
+### Large File Handling
+
+For large datasets, the module implements:
+- Chunk-based processing to manage memory usage
+- Progress reporting during lengthy operations
+- Memory cleanup to prevent out-of-memory errors
+
+## Output Format
+
+The prediction output includes:
+- Original text data
+- Predicted label (highest confidence class)
+- Confidence score
+- Prediction set (all possible classes within significance level)
+- Prediction set size (indicates prediction uncertainty)
+
+## Example Usage
 
 ```python
-from Predict import load_model, predict_labels
+# Programmatic usage
+from FTC.Predict import load_model, predict_with_probs
 
 # Load model components
 model, tokenizer, label_encoder = load_model()
 
-# Make predictions on new texts
-texts = ["This is a sample text", "Another example to classify"]
-predictions = predict_labels(model, tokenizer, texts, label_encoder)
-print(predictions)  # ['Class A', 'Class B']
+# Make predictions
+texts = ["This is a sample text to classify"]
+predictions, probabilities = predict_with_probs(model, tokenizer, texts, label_encoder)
 ```
 
-## Model Loading Process
+## Integration with Other Modules
 
-The module carefully reconstructs the exact model architecture used during training:
+This module relies on components defined in:
+- `BertClassification.py`: For model architecture and text preprocessing
+- `FTC_utils/conformal.py`: For uncertainty quantification
+- `FTC_utils/device_utils.py`: For hardware detection
+- `FTC_utils/file_utils.py`: For safe loading of models and configuration
 
-1. Loads the base triplet embedding model
-2. Reads tuning parameters from the best configuration file
-3. Reconstructs the classifier with identical architecture and hyperparameters
-4. Loads the trained weights from the checkpoint
+## Advanced Usage
 
-This ensures perfect consistency between training and inference.
+### Custom Input Files
 
-## Configuration and Paths
-
-The module reads the following paths from `config.yml`:
-
-| Path | Description |
-|------|-------------|
-| `CHECKPOINT_DIR` | Directory containing model checkpoints |
-| `EMBEDDING_PATH` | Path to the triplet model weights |
-| `DATA_PATH` | Directory containing data files |
-| `TEST_FILE` | Path to the test file to process |
-| `BEST_CONFIG_DIR` | Directory containing tuned hyperparameters |
-
-## Model Verification
-
-The module performs and displays detailed model verification to ensure proper loading:
-
-```
-MODEL VERIFICATION
-================================================================================
-Pretrained Model: all-mpnet-base-v2
-Architecture:
-  - Embedding Model: TripletEmbeddingModel
-  - Classifier: Custom Sequential Architecture
-    - Input Dimension: 768
-    - Output Classes: 4
-    - Hidden Layers: 1
-      - Layer 1: 721 units
-Parameters:
-  - Dropout Rate: 0.244
-  - Activation Function: gelu
-  - Optimizer: rmsprop
-  - Learning Rate: 0.00029
-  - Momentum: 0.467
-  - Alpha: 0.915
-  - Weight Decay: 0.000076
+```bash
+python FTC/Predict.py --input /path/to/custom/input.csv --output /path/to/results.csv
 ```
 
-## Output Format
+### Processing Very Large Files
 
-The module adds several columns to the input CSV file:
-- `predicted_label`: The most likely class prediction
-- `confidence_score`: Confidence score for the prediction (between 0 and 1)
-- `prediction_set`: List of possible classes within the conformal prediction set
-- `prediction_set_size`: Number of classes in the prediction set
+For datasets too large to fit in memory, use the `--large-file` flag with chunked processing:
 
-Example output:
-```
-text,labels,predicted_label,confidence_score,prediction_set,prediction_set_size
-"This is an example text",,"Electronics",0.92,["Electronics"],1
-"Another sample to classify",,"Clothing",0.75,["Clothing","Electronics"],2
+```bash
+python FTC/Predict.py --input /path/to/large-dataset.csv --output /path/to/results.csv --large-file --chunk-size 10000
 ```
 
-## Conformal Prediction Sets
-
-The module uses **conformal prediction** to provide uncertainty estimates for each prediction:
-
-- A prediction set contains all classes that could be correct with the given significance level
-- The significance level (default: 0.1) controls the size of prediction sets
-- Smaller prediction sets indicate more confident predictions
-- A prediction set size of 1 means the model is highly confident in its prediction
-
-This approach offers more reliable error guarantees than standard confidence scores alone.
-
-### Programmatic Usage
+### Using Conformal Prediction
 
 ```python
 from FTC.Predict import load_model, predict_with_confidence
@@ -164,105 +127,11 @@ results = predict_with_confidence(
     model, tokenizer, texts, label_encoder,
     conformal_predictor
 )
-
-# Access results
-for i, text in enumerate(texts):
-    print(f"Text: {text}")
-    print(f"Prediction: {results['predicted_label'][i]}")
-    print(f"Confidence: {results['confidence_score'][i]:.2f}")
-    print(f"Prediction set: {results['prediction_set'][i]}")
 ```
-
-## Conformal Prediction Details
-
-### Technical Background
-
-Conformal prediction provides statistically valid uncertainty quantification:
-
-- Creates prediction sets that contain the true label with a guaranteed probability (1-significance)
-- Gives more reliable uncertainty measures than standard softmax probabilities
-- Adapts automatically to the difficulty of each prediction
-
-### Calibration Process
-
-The conformal predictor needs calibration data to make valid predictions:
-
-- Uses a portion of the training data for calibration
-- The calibration data is saved to `{CALIBRATION_DIR}/calibration_scores.npy`
-- Once calibrated, the same calibration file can be reused for future predictions
-
-### Significance Level
-
-Control prediction set size with the significance parameter:
-```bash
-python FTC/Predict.py --significance 0.1
-```
-
-Lower significance (e.g., 0.05) means higher confidence but larger prediction sets.
-Higher significance (e.g., 0.2) means smaller prediction sets with lower confidence.
 
 ## Performance Considerations
 
 1. **Batch Processing**: The module processes data in batches (default: 32) to optimize throughput
-2. **GPU/MPS Acceleration**: Automatically uses available hardware acceleration
-3. **Memory Usage**: Optimized to avoid storing duplicate tensors or unnecessary copies
-4. **Error Handling**: Graceful handling of edge cases like empty strings or malformed inputs
-5. **Large File Support**: Processes files of any size through chunked streaming
-6. **Memory Management**: Periodically clears CUDA cache to prevent memory leaks during long-running operations
-
-## Best Practices
-
-1. **Input Formatting**: Ensure text data is in the same format as training data
-2. **Batch Size**: Adjust batch size based on available memory and text length
-3. **Device Selection**: For large datasets, use GPU/MPS when available
-4. **Pre-processing**: Apply the same cleaning steps used during training
-
-## Advanced Usage
-
-### Custom Input Files
-
-```bash
-python FTC/Predict.py --input /path/to/custom/input.csv --output /path/to/results.csv
-```
-
-### Controlling Batch Size
-
-```bash
-python FTC/Predict.py --batch-size 64
-```
-
-### Processing Very Large Files
-
-For datasets too large to fit in memory, use the `--large-file` flag with chunked processing:
-
-```bash
-python FTC/Predict.py --input /path/to/large-dataset.csv --output /path/to/results.csv --large-file --chunk-size 10000
-```
-
-This processes the file in manageable chunks, with these benefits:
-- Constant memory usage regardless of file size
-- Progress tracking with percentage completion
-- Periodic memory cleanup
-- Automatic error recovery for problematic records
-
-### Accessing Raw Probabilities
-
-```python
-# Get prediction results
-results = predict_with_confidence(model, tokenizer, texts, label_encoder, conformal_predictor)
-
-# Access and use raw probabilities
-probabilities = results["probabilities"]
-print(f"Label: {results['predicted_label'][0]}, Confidence: {results['confidence_score'][0]:.2f}")
-for i, label in enumerate(label_encoder.classes_):
-    print(f"  {label}: {probabilities[0][i]:.4f}")
-```
-
-## Dependencies
-
-- PyTorch
-- Transformers (Hugging Face)
-- pandas
-- numpy
-- matplotlib
-- seaborn
+2. **GPU Acceleration**: Automatically uses available hardware acceleration
+3. **Memory Management**: Periodically clears CUDA cache to prevent memory leaks during long-running operations
+4. **Error Handling**: Graceful handling of edge cases and input validation
